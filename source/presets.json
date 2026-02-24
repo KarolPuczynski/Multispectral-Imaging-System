@@ -11,18 +11,6 @@
         "end_wavelength": 700,
         "step": 10
     },
-    "5445": {
-        "mode": "Wide",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
-    },
-    "kupa": {
-        "mode": "Wide",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
-    },
     "test2": {
         "mode": "Wide",
         "start_wavelength": 500,
@@ -31,24 +19,6 @@
     },
     "test3": {
         "mode": "Normal",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
-    },
-    "lolz": {
-        "mode": "Wide",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
-    },
-    "new": {
-        "mode": "Wide",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 20
-    },
-    "default1234": {
-        "mode": "Narrow",
         "start_wavelength": 500,
         "end_wavelength": 600,
         "step": 10

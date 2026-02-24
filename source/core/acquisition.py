@@ -27,7 +27,6 @@ class Acquisition:
 
         try:
             # 1. Łączenie z Kamerą
-            # (zakładamy, że klasa ThorlabsCamera sama szuka kamery w __init__)
             self.camera = ThorlabsCamera(self.manual_exposure)
             self.camera_connected = True
             print("Kamera połączona.")
@@ -42,11 +41,10 @@ class Acquisition:
                 self.kurios_connected = False
                 return False
 
-            # Bierzemy pierwsze znalezione urządzenie (numer seryjny jest w index 0)
+            # bierzemy pierwsze znalezione urządzenie
             serial_port = devices[0][0]
 
-            # Otwieramy połączenie (serial, baudrate, timeout)
-            # Zwraca >=0 jeśli sukces, -1 jeśli błąd
+            # otwieramy połączenie
             status = self.filter.open(serial_port, 115200, 1)
 
             if status >= 0:
@@ -108,7 +106,7 @@ class Acquisition:
 
         wavelengths = list(range(starting_wavelength, ending_wavelength + 1, step))
 
-        bandwidth_name = mode ## nie mam pomyslu
+        bandwidth_name = mode
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4) # jak sie wykrzaczy to domyslnie na 4 ustawiony tryb
 
         self.filter.SetBandwidthMode(bandwidth_code)

@@ -1,5 +1,4 @@
 
-
 kurios_tuning_times = {
     "Narrow": {
         (450, 500): 200,

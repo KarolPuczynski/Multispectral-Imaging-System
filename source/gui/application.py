@@ -91,8 +91,8 @@ class App:
         }
 
         row_idx = 0
-        for text, cmd in buttons.items():
-            ttk.Button(left_frame, text=text, command=cmd).grid(row=row_idx, column=0, columnspan=2, sticky="ew")
+        for text, command in buttons.items():
+            ttk.Button(left_frame, text=text, command=command).grid(row=row_idx, column=0, columnspan=2, sticky="ew")
             row_idx += 1
 
         # Statusy polaczania kamery i filtra
