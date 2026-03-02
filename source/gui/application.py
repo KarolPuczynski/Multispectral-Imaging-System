@@ -134,8 +134,8 @@ class App:
     def _create_z_axis_controls(self, parent, start_row):
         z_frame = ttk.LabelFrame(parent, text="Oś Z ")
         z_frame.grid(row=start_row, column=0, columnspan=2, pady=5, sticky="ew")
-        ttk.Button(z_frame, text="Z +", command=self.move_z_plus).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
-        ttk.Button(z_frame, text="Z -", command=self.move_z_minus).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
+        ttk.Button(z_frame, text="Z +", command=self.move_single_axis).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
+        ttk.Button(z_frame, text="Z -", command=self.move_single_axis).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
 
     def _create_pwm_controls(self, parent, start_row):
         pwm_frame = ttk.LabelFrame(parent, text="Oświetlenie (PWM)")
@@ -263,13 +263,9 @@ class App:
         scan_thread.daemon = True
         scan_thread.start()
 
-    # Podniesienie platformy na osi Z
-    def move_z_plus(self):
-        self.platform.move_z_plus()
-
-    # Obnizenie platformy na osi Z
-    def move_z_minus(self):
-        self.platform.move_z_minus()
+    # Reczny ruch na wybranej osi
+    def move_single_axis(self, gcode = 'G91 X10'):
+        self.platform.move_single_axis(gcode)
 
     # Dostosowanie mocy naświetlania probki
     def adjust_lighting(self):
