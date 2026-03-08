@@ -14,6 +14,9 @@ class App:
         self.root = root
         self.root.title("Multispectral System")
 
+        # 0. Konfiguracja skalowania (czcionki, style)
+        self.configure_styles()
+
         # 1. Inicjalizacja potrzebnych obiektow klas, parametrow (acquisition, presets, platform bandwidth_modes)
         self.init_logic_modules()
 
@@ -33,6 +36,21 @@ class App:
 
     # --- LOGIKA I ZMIENNE ---
 
+    def configure_styles(self):
+        screen_height = self.root.winfo_screenheight()
+        
+        base_size = int(screen_height / 70)
+        
+        default_font = ("Segoe UI", base_size)
+        bold_font = ("Segoe UI", base_size, "bold")
+
+        style = ttk.Style()
+        style.configure(".", font=default_font) 
+        style.configure("TButton", font=default_font, padding=10) 
+        style.configure("TLabelframe.Label", font=bold_font) 
+        
+        self.root.option_add("*Font", default_font)
+
     # Funkcja do zainicjowania klas sterujacych sprzetem i danymi
     def init_logic_modules(self):
         self.acquisition = Acquisition()
@@ -48,7 +66,7 @@ class App:
 
         # Manualne parametry
         self.var_wavelength = tk.IntVar(value=500)
-        self.var_exposure = tk.IntVar(value=2000)
+        self.var_exposure = tk.IntVar(value=50000)
         self.var_bandwidth = tk.StringVar(value="Medium")
 
         # Parametry wybranego presetu
@@ -71,8 +89,10 @@ class App:
 
     # Konfiguracja siatki głównego okna
     def setup_window_grid(self):
-        for col in range(3):
-            self.root.columnconfigure(col, weight=1)
+        # Ustawiamy wagi: boki wąskie (weight=1), środek szeroki (weight=4)
+        self.root.columnconfigure(0, weight=1)
+        self.root.columnconfigure(1, weight=4)
+        self.root.columnconfigure(2, weight=1)
         self.root.rowconfigure(0, weight=1)
 
     # --- BUDOWANIE INTERFEJSU (GUI) ---
@@ -153,6 +173,10 @@ class App:
     def create_middle_panel(self):
         mid_frame = ttk.LabelFrame(self.root, text="Podgląd i Preset")
         mid_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # Konfiguracja siatki wewnątrz mid_frame, aby Live View (row 0) się rozciągał
+        mid_frame.columnconfigure(0, weight=1)
+        mid_frame.rowconfigure(0, weight=1)
 
         # LIVE VIEW
         # Kontener na obraz z kamery
@@ -342,4 +366,3 @@ class App:
             self.acquisition.cleanup()
 
         self.root.destroy()
-
