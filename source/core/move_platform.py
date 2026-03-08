@@ -1,5 +1,4 @@
-from grbl_handling import GRBLcontrol
-
+from core.grbl_handling import GRBLcontrol
 
 class Platform:
     def __init__(self):

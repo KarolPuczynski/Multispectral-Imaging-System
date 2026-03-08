@@ -1,10 +1,6 @@
 import tkinter as tk
 from PIL import Image, ImageTk
-
-try:
-    import Queue as queue
-except ImportError:
-    import queue
+import queue
 
 
 class LiveViewCanvas(tk.Canvas):

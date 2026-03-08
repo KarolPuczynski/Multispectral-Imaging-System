@@ -12,7 +12,7 @@ class Acquisition:
         self.kurios_connected = False
 
         self.manual_wavelength = 500
-        self.manual_exposure = 2000
+        self.manual_exposure = 50000
         self.manual_bandwidth = "Medium"
         self.bandwidth_modes = {"Wide": 2,
                                 "Medium": 4,

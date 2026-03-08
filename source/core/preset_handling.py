@@ -3,7 +3,7 @@ import os
 
 class PresetManager:
     def __init__(self, json_path):
-        self.json_path = json_path
+        self.json_path = f"source/{json_path}"
         self.presets = {}
         self.load_presets()
 
