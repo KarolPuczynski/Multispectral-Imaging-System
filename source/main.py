@@ -1,11 +1,10 @@
-import tkinter as tk
+import sys
+from PyQt6.QtWidgets import QApplication
 from gui.application import App
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    qt_app = QApplication(sys.argv)
 
-    # Maximize the window to fit the screen
-    root.state('zoomed')
-
-    app = App(root)
-    root.mainloop()
+    window = App()
+    window.showMaximized()
+    sys.exit(qt_app.exec())
