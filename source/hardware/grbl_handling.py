@@ -22,7 +22,7 @@ class GrblClient:
         try:
             self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
         except serial.SerialException as e:
-            print(f"Błąd otwarcia portu {self.port}: {e}")
+            print(f"[GRBL] Błąd otwarcia portu {self.port}: {e}")
             return
 
         time.sleep(2.0)
@@ -34,13 +34,13 @@ class GrblClient:
         self.ser.flush()
         time.sleep(0.2)
         self.ser.reset_input_buffer()
-        print(f"Połączono z GRBL na porcie {self.port}")
+        print(f"[GRBL] Połączono z GRBL na porcie {self.port}")
 
     def disconnect(self):
         if self.ser and self.ser.is_open:
             self.ser.close()
         self.ser = None
-        print("Rozłączono z GRBL")
+        print("[GRBL] Rozłączono z GRBL")
 
     def _worker_loop(self):
         while True:
@@ -49,14 +49,14 @@ class GrblClient:
                 self.send_line_blocking(command)
                 self.command_queue.task_done()
             except Exception as e:
-                print(f"Błąd w wątku GRBL: {e}")
+                print(f"[GRBL] Błąd w wątku GRBL: {e}")
 
     def send_line_async(self, line: str):
         self.command_queue.put(line)
 
     def send_line_blocking(self, line: str, wait_ok=True) -> str:
         if not self.ser or not self.ser.is_open:
-            print("[GRBL] Błąd: Brak połączenia.")
+            print("[GRBL] Błąd: Brak połączenia. Komenda zignorowana.")
             return ""
 
         cmd = line.strip()
@@ -97,7 +97,7 @@ class GrblClient:
             self.ser.flush()
 
     def stream_gcode(self, gcode_path):
-        print(f"Streaming pliku G-code: {gcode_path}")
+        print(f"[GRBL] Streaming pliku G-code: {gcode_path}")
         try:
             with open(gcode_path, "r") as file:
                 for line in file:
@@ -106,9 +106,9 @@ class GrblClient:
                     cleaned = line.strip()
 
                     if cleaned:
-                        print(f"Wysyłanie: {cleaned}")
+                        print(f"[GRBL] Wysyłanie: {cleaned}")
                         response = self.send_line_blocking(cleaned)
-                        print(f"GRBL odp: {response}")
-            print("Zakończono wysyłanie pliku G-code")
+                        print(f"[GRBL] Odpowiedź: {response}")
+            print("[GRBL] Zakończono wysyłanie pliku G-code")
         except FileNotFoundError:
-            print(f"Błąd: Nie znaleziono pliku {gcode_path}")
+            print(f"[GRBL] Błąd: Nie znaleziono pliku {gcode_path}")

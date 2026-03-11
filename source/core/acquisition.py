@@ -22,14 +22,14 @@ class Acquisition:
         print("[INFO] Connecting hardware...")
 
         if self.is_scanning:
-            print("Nie można łączyć urządzeń podczas skanowania!")
+            print("[INFO] Nie można łączyć urządzeń podczas skanowania!")
             return False
 
         try:
             # 1. Łączenie z Kamerą
             self.camera = ThorlabsCamera(self.manual_exposure)
             self.camera_connected = True
-            print("Kamera połączona.")
+            print("[CAM] Kamera połączona.")
 
             # 2. Łączenie z Filtrem KURIOS
             self.filter = Kurios()
@@ -37,7 +37,7 @@ class Acquisition:
             # Musimy znaleźć urządzenia podłączone do komputera
             devices = self.filter.list_devices()
             if not devices:
-                print("Błąd: Nie znaleziono urządzenia KURIOS na USB.")
+                print("[CAM] Błąd: Nie znaleziono urządzenia KURIOS na USB.")
                 self.kurios_connected = False
                 return False
 
@@ -49,25 +49,25 @@ class Acquisition:
 
             if status >= 0:
                 self.kurios_connected = True
-                print(f"KURIOS połączony na porcie: {serial_port}")
+                print(f"[CAM] KURIOS połączony na porcie: {serial_port}")
             else:
-                print("Błąd: Nie udało się otworzyć portu KURIOS.")
+                print("[CAM] Błąd: Nie udało się otworzyć portu KURIOS.")
                 self.kurios_connected = False
                 return False
 
         except Exception as e:
-            print(f"Krytyczny błąd połączenia: {e}")
+            print(f"[CAM] Krytyczny błąd połączenia: {e}")
             return False
 
         return True
 
     def capture_image(self, wavelength, exposure, gain, bandwidth_name, bandwidth_code):
         if not self.camera or not self.filter:
-            print("Najpierw połącz urządzenia!")
+            print("[INFO] Najpierw połącz urządzenia!")
             return
 
         if self.is_scanning:
-            print("Trwa skanowanie")
+            print("[INFO] Trwa skanowanie")
             return
 
         # Ustawienie parametrow filtra:
@@ -81,13 +81,13 @@ class Acquisition:
         try:
             self.camera.analog_gain = gain
         except Exception as e:
-            print("Gain nie mógł zostać ustawiony:", e)
+            print(f"[CAM] Gain nie mógł zostać ustawiony: {e}")
 
         time.sleep(0.3)
 
         filename = f"manual_{wavelength}nm_{bandwidth_name}.png"
         self.camera.save_frame(filename)
-        print(f"Zapisano zdjęcie: {filename}")
+        print(f"[CAM] Zapisano zdjęcie: {filename}")
 
     def set_hardware_params(self, wavelength, exposure, bandwidth_name, gain):
         """Aktualizuje parametry sprzetu (Live View) bez zapisu zdjecia."""
@@ -117,11 +117,11 @@ class Acquisition:
     def scan_sequence(self, starting_wavelength, ending_wavelength, step, mode):
 
         if not self.camera or not self.filter:
-            print("Najpierw połącz urządzenia!")
+            print("[INFO] Najpierw połącz urządzenia!")
             return
 
         if self.is_scanning:
-            print("Skanowanie już trwa!")
+            print("[INFO] Skanowanie już trwa!")
             return
 
         self.is_scanning = True
@@ -137,7 +137,7 @@ class Acquisition:
         self.filter.SetBandwidthMode(bandwidth_code)
         time.sleep(0.2)
 
-        print(f"Rozpoczynam skanowanie: {starting_wavelength}–{ending_wavelength} nm, step={step}, mode={bandwidth_name}")
+        print(f"[INFO] Rozpoczynam skanowanie: {starting_wavelength}–{ending_wavelength} nm, step={step}, mode={bandwidth_name}")
 
         prev_wavelength = wavelengths[0]
 
@@ -156,7 +156,7 @@ class Acquisition:
             filename = f"scan_{i+1}_{wavelength}nm_{bandwidth_name}.png"
             self.camera.save_frame(filename)
 
-            print(f"Zapisano {filename} (ekspozycja: {exp} µs)")
+            print(f"[CAM] Zapisano {filename} (ekspozycja: {exp} µs)")
             prev_wavelength = wavelength
 
         delay_back = kurios_tuning_times[bandwidth_name].get((700, 450), 200)
@@ -164,7 +164,7 @@ class Acquisition:
         time.sleep(delay_back / 1000.0)
 
         self.is_scanning = False
-        print("Skanowanie zakończone.")
+        print("[INFO] Skanowanie zakończone.")
 
     def cleanup(self):
         if self.camera is not None:

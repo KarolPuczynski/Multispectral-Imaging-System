@@ -1,9 +1,10 @@
 import os
-from core.grbl_handling import GrblClient
+from hardware.grbl_handling import GrblClient
 
 class Platform:
     def __init__(self):
         self.grbl = GrblClient()
+        self.is_ready = False
 
         # zakres roboczy platformy w mm
         self.platform_min = (0.0, 0.0, 0.0) # minimalne położenie (x, y, z)
@@ -21,9 +22,11 @@ class Platform:
         self.x_state = 0.0
         self.y_state = 0.0
         self.z_state = 0.0
+        self.is_ready = True
 
     def unlock(self):
         self.grbl.send_line_async('$X')
+        self.is_ready = True
 
     def grblsetup(self):
         gcode_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grblsetup.gcode')

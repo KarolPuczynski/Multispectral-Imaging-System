@@ -9,7 +9,7 @@ class PresetManager:
 
     def load_presets(self):
         if not os.path.exists(self.json_path):
-            print(f"Plik {self.json_path} nie istnieje.")
+            print(f"[INFO] Plik {self.json_path} nie istnieje.")
             return
 
         with open(self.json_path, "r", encoding="utf-8") as f:
@@ -26,4 +26,4 @@ class PresetManager:
 
         with open(self.json_path, "w", encoding="utf-8") as f:
             json.dump(self.presets, f, indent=4)
-        print(f"[PRESET] Zapisano preset '{name}'")
+        print(f"[INFO] Zapisano preset '{name}'")

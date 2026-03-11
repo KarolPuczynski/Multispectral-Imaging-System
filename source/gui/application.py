@@ -325,7 +325,7 @@ class App(QMainWindow):
     def capture_image(self):
         # Zabezpieczenie: Zatrzymaj Live View, jeśli działa, zanim przejmiesz kontrolę nad kamerą
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
-            print("Zatrzymywanie Live View przed wykonaniem zdjęcia...")
+            print("[INFO] Zatrzymywanie Live View przed wykonaniem zdjęcia...")
             self.stop_live_view_action()
 
         wavelength = self.spin_wavelength.value()
@@ -356,7 +356,7 @@ class App(QMainWindow):
             
         # Zabezpieczenie: Zatrzymaj Live View przed skanowaniem
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
-            print("Zatrzymywanie Live View przed rozpoczęciem skanowania...")
+            print("[INFO] Zatrzymywanie Live View przed rozpoczęciem skanowania...")
             self.stop_live_view_action()
 
         start = self.preset_start_wavelength
@@ -364,11 +364,11 @@ class App(QMainWindow):
         step = self.preset_step
         mode = self.preset_mode
 
-        print(f"Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
+        print(f"[INFO] Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
 
         def run_thread():
             self.acquisition.scan_sequence(start, stop, step, mode)
-            print("Wątek skanowania zakończony.")
+            print("[INFO] Wątek skanowania zakończony.")
 
         scan_thread = threading.Thread(target=run_thread)
         scan_thread.daemon = True
@@ -378,6 +378,17 @@ class App(QMainWindow):
     # trzeba i tak jakos zabezpieczyc przed wyslaniem wartosci jak 
     # bedziemy bardzo blisko krawedzi zakresu
     def validate_and_move(self, axis, direction):
+        # 0. Sprawdzenie czy platforma jest połączona
+        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
+            # Opcjonalnie: Możesz tu dać komunikat "Połącz platformę", 
+            # ale zazwyczaj przyciski reagują na kliknięcie.
+            return
+
+        # 1. Sprawdzenie czy wykonano Homing/Unlock
+        if not self.platform.is_ready:
+            QMessageBox.warning(self, "Blokada Platformy", "Platforma jest zablokowana (stan Alarm).\nProszę wykonać Homing ($H) lub Unlock ($X), aby umożliwić ruch.")
+            return
+
         step = self.spin_platform_step.value()
 
         # 2. Sprawdzenie czy wartość jest dodatnia
@@ -417,7 +428,7 @@ class App(QMainWindow):
     def save_preset(self):
         name = self.edit_preset_name.text()
         if not name:
-            print("Błąd: Podaj nazwę presetu!")
+            print("[INFO] Błąd: Podaj nazwę presetu!")
             return
 
         preset_data = {
@@ -436,7 +447,7 @@ class App(QMainWindow):
     def start_live_view_action(self):
         # Sprawdzamy czy hardware jest podłączony
         if not self.acquisition.camera_connected:
-            print("Najpierw połącz kamerę!")
+            print("[INFO] Najpierw połącz kamerę!")
             return
 
         # Przed startem ustawiamy parametry z panelu manualnego
@@ -474,11 +485,11 @@ class App(QMainWindow):
             self.label_range.setText(f"Zakres λ: {p_start} - {p_end} nm")
             self.label_step.setText(f"Step: {p_step} nm")
 
-            print(f"Załadowano preset '{selected_name}' do zmiennych systemowych.")
+            print(f"[INFO] Załadowano preset '{selected_name}' do zmiennych systemowych.")
 
     # zamykamy okkno jak i ODLACZAMY KAMERE I FILTR
     def on_close(self, event=None):
-        print("Zamykanie aplikacji i zwalnianie zasobów...")
+        print("[INFO] Zamykanie aplikacji i zwalnianie zasobów...")
         if hasattr(self, 'acquisition'):
             self.acquisition.cleanup()
         if hasattr(self, 'pwm_controller'):
