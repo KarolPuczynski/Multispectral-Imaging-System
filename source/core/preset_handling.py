@@ -3,7 +3,7 @@ import os
 
 class PresetManager:
     def __init__(self, json_path):
-        self.json_path = f"source/{json_path}"
+        self.json_path = f"source/data/{json_path}"
         self.presets = {}
         self.load_presets()
 
@@ -27,3 +27,10 @@ class PresetManager:
         with open(self.json_path, "w", encoding="utf-8") as f:
             json.dump(self.presets, f, indent=4)
         print(f"[INFO] Zapisano preset '{name}'")
+
+    def delete_preset(self, name):
+        if name in self.presets:
+            del self.presets[name]
+            with open(self.json_path, "w", encoding="utf-8") as f:
+                json.dump(self.presets, f, indent=4)
+            print(f"[INFO] Usunięto preset '{name}'")
