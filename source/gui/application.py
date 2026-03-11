@@ -92,6 +92,14 @@ class App(QMainWindow):
         self.kur_status_label.setStyleSheet("color: red")
         layout.addWidget(self.kur_status_label)
 
+        self.platform_status_label = QLabel("Platforma: Rozłączona")
+        self.platform_status_label.setStyleSheet("color: red")
+        layout.addWidget(self.platform_status_label)
+
+        self.pwm_status_label = QLabel("PWM: Rozłączony")
+        self.pwm_status_label.setStyleSheet("color: red")
+        layout.addWidget(self.pwm_status_label)
+
         # Manualne sterowanie
         layout.addWidget(self._create_manual_controls())
 
@@ -243,6 +251,10 @@ class App(QMainWindow):
         self.combo_select_preset.currentTextChanged.connect(self.on_preset_selected)
         preset_layout.addWidget(self.combo_select_preset)
         
+        btn_delete = QPushButton("Usuń")
+        btn_delete.clicked.connect(self.delete_preset_action)
+        preset_layout.addWidget(btn_delete)
+        
         layout.addLayout(preset_layout)
 
         self.label_mode = QLabel("Mode: ---")
@@ -269,28 +281,26 @@ class App(QMainWindow):
         self.edit_preset_name = QLineEdit("default")
         layout.addWidget(self.edit_preset_name, 0, 1)
 
-        layout.addWidget(QLabel("Mode"), 1, 0)
+        # Krok jako pierwszy parametr decydujący
+        layout.addWidget(QLabel("Step [nm]"), 1, 0)
+        self.combo_preset_step = QComboBox()
+        self.combo_preset_step.addItems(["10", "20", "30", "40", "50"])
+        self.combo_preset_step.currentTextChanged.connect(self.update_preset_constraints)
+        layout.addWidget(self.combo_preset_step, 1, 1)
+
+        layout.addWidget(QLabel("Mode"), 2, 0)
         self.combo_preset_mode = QComboBox()
         self.combo_preset_mode.addItems(list(self.bandwidth_modes.keys()))
-        layout.addWidget(self.combo_preset_mode, 1, 1)
+        layout.addWidget(self.combo_preset_mode, 2, 1)
 
-        layout.addWidget(QLabel("Start λ [nm]"), 2, 0)
-        self.spin_preset_start = QSpinBox()
-        self.spin_preset_start.setRange(450, 700)   #filtr ma zakres od 430
-        self.spin_preset_start.setValue(500)
-        layout.addWidget(self.spin_preset_start, 2, 1)
+        # Start i Stop jako listy rozwijane, wypełniane dynamicznie
+        layout.addWidget(QLabel("Start λ [nm]"), 3, 0)
+        self.combo_preset_start = QComboBox()
+        layout.addWidget(self.combo_preset_start, 3, 1)
 
-        layout.addWidget(QLabel("Stop λ [nm]"), 3, 0)
-        self.spin_preset_stop = QSpinBox()
-        self.spin_preset_stop.setRange(450, 700) #filtr ma zakres od 430
-        self.spin_preset_stop.setValue(600)
-        layout.addWidget(self.spin_preset_stop, 3, 1)
-
-        layout.addWidget(QLabel("Step [nm]"), 4, 0)
-        self.spin_preset_step = QSpinBox()
-        self.spin_preset_step.setRange(1, 100)
-        self.spin_preset_step.setValue(10)
-        layout.addWidget(self.spin_preset_step, 4, 1)
+        layout.addWidget(QLabel("Stop λ [nm]"), 4, 0)
+        self.combo_preset_stop = QComboBox()
+        layout.addWidget(self.combo_preset_stop, 4, 1)
 
         btn_save = QPushButton("Zapisz preset")
         btn_save.clicked.connect(self.save_preset)
@@ -298,6 +308,9 @@ class App(QMainWindow):
 
         layout.setRowStretch(6, 1) # push up
         group.setLayout(layout)
+        
+        # Inicjalizacja ograniczeń dla domyślnego kroku (10)
+        self.update_preset_constraints()
         return group
 
     # --- OBSŁUGA ZDARZEŃ  ---
@@ -315,10 +328,16 @@ class App(QMainWindow):
         
         # 2. Próba połączenia z platformą (GRBL)
         self.platform.connect()
+        if self.platform.grbl.ser and self.platform.grbl.ser.is_open:
+            self.platform_status_label.setText("Platforma: POŁĄCZONA")
+            self.platform_status_label.setStyleSheet("color: green")
 
         # 3. Próba połączenia z oświetleniem (PWM) - niezależnie od kamery
         # Dzięki temu możesz sterować światłem nawet bez kamery
         self.pwm_controller.connect()
+        if self.pwm_controller.connected:
+            self.pwm_status_label.setText("PWM: POŁĄCZONY")
+            self.pwm_status_label.setStyleSheet("color: green")
         
         # Wyślij aktualną wartość suwaka od razu po połączeniu
         self.adjust_lighting()
@@ -383,8 +402,7 @@ class App(QMainWindow):
     def validate_and_move(self, axis, direction):
         # 0. Sprawdzenie czy platforma jest połączona
         if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
-            # Opcjonalnie: Możesz tu dać komunikat "Połącz platformę", 
-            # ale zazwyczaj przyciski reagują na kliknięcie.
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
             return
 
         # 1. Sprawdzenie czy wykonano Homing/Unlock
@@ -411,14 +429,22 @@ class App(QMainWindow):
         if self.platform.validate_platform_movement(axis, distance):
             self.platform.move_single_axis(f'G91 {axis}{distance} F500')
         else:
-            QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {distance} mm w osi {axis} przekracza zakres platformy!")
+            QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {step * direction} mm w osi {axis} przekracza zakres platformy!")
 
     # homing platformy 
     def platform_homing(self):
+        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+            return
+
         self.platform.homing()
 
     # Odblokowanie platformy (domyslnie po wlaczeniu jest zablokowana, i wtedy można tylko ja homingowac)
     def platform_unlock(self):
+        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+            return
+
         self.platform.unlock()
 
     # regulacja oswietleenia probki
@@ -433,17 +459,67 @@ class App(QMainWindow):
         dlg = AdvancedSettingsDialog(self, self.platform, self.pwm_controller)
         dlg.exec()
 
+    def update_preset_constraints(self):
+        # Pobieramy wybrany krok
+        step_text = self.combo_preset_step.currentText()
+        if not step_text:
+            return
+        step = int(step_text)
+
+        # Ustalamy zakresy zgodnie z wymaganiami
+        # 10, 50 -> max 700
+        # 20, 30, 40 -> max 690 (bo startujemy od 450)
+        min_val = 450
+        if step in [20, 30, 40]:
+            max_val = 690
+        else:
+            max_val = 700
+
+        # Generujemy listę dostępnych wartości dla wybranego kroku
+        valid_values = list(range(min_val, max_val + 1, step))
+        valid_values_str = [str(x) for x in valid_values]
+
+        # Aktualizacja listy Start
+        current_start = self.combo_preset_start.currentText()
+        self.combo_preset_start.blockSignals(True)
+        self.combo_preset_start.clear()
+        self.combo_preset_start.addItems(valid_values_str)
+        if current_start in valid_values_str:
+            self.combo_preset_start.setCurrentText(current_start)
+        else:
+            self.combo_preset_start.setCurrentIndex(0) # Domyślnie pierwsza wartość (min)
+        self.combo_preset_start.blockSignals(False)
+
+        # Aktualizacja listy Stop
+        current_stop = self.combo_preset_stop.currentText()
+        self.combo_preset_stop.blockSignals(True)
+        self.combo_preset_stop.clear()
+        self.combo_preset_stop.addItems(valid_values_str)
+        if current_stop in valid_values_str:
+            self.combo_preset_stop.setCurrentText(current_stop)
+        else:
+            self.combo_preset_stop.setCurrentIndex(len(valid_values_str) - 1) # Domyślnie ostatnia wartość (max)
+        self.combo_preset_stop.blockSignals(False)
+
     def save_preset(self):
         name = self.edit_preset_name.text()
         if not name:
             print("[INFO] Błąd: Podaj nazwę presetu!")
             return
 
+        try:
+            start_val = int(self.combo_preset_start.currentText())
+            end_val = int(self.combo_preset_stop.currentText())
+            step_val = int(self.combo_preset_step.currentText())
+        except ValueError:
+            print("[INFO] Błąd wartości numerycznych w presecie!")
+            return
+
         preset_data = {
             "mode": self.combo_preset_mode.currentText(),
-            "start_wavelength": self.spin_preset_start.value(),
-            "end_wavelength": self.spin_preset_stop.value(),
-            "step": self.spin_preset_step.value()
+            "start_wavelength": start_val,
+            "end_wavelength": end_val,
+            "step": step_val
         }
 
         self.presets.save_new_preset(name, preset_data)
@@ -451,6 +527,35 @@ class App(QMainWindow):
         updated_names = list(self.presets.get_preset_names())
         self.combo_select_preset.clear()
         self.combo_select_preset.addItems(updated_names)
+
+    def delete_preset_action(self):
+        selected_name = self.combo_select_preset.currentText()
+        if not selected_name:
+            return
+
+        reply = QMessageBox.question(self, "Usuwanie presetu", 
+                                     f"Czy na pewno chcesz usunąć preset '{selected_name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.presets.delete_preset(selected_name)
+            
+            # Odświeżamy listę w GUI
+            updated_names = list(self.presets.get_preset_names())
+            self.combo_select_preset.blockSignals(True)
+            self.combo_select_preset.clear()
+            self.combo_select_preset.addItems(updated_names)
+            self.combo_select_preset.blockSignals(False)
+            
+            if updated_names:
+                self.combo_select_preset.setCurrentIndex(0)
+                self.on_preset_selected(self.combo_select_preset.currentText())
+            else:
+                self.label_mode.setText("Mode: ---")
+                self.label_range.setText("Zakres λ: ---")
+                self.label_step.setText("Step: ---")
+                self.preset_name = None
+                self.preset_start_wavelength = None
 
     def start_live_view_action(self):
         # Sprawdzamy czy hardware jest podłączony
