@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
 from PyQt6.QtCore import Qt
 from core.acquisition import Acquisition
 from core.preset_handling import PresetManager
-from core.move_platform import Platform
+from hardware.move_platform import Platform
 from hardware.led_controller import LedController
 from gui.live_view import LiveViewWidget
 
@@ -311,7 +311,10 @@ class App(QMainWindow):
             self.kur_status_label.setText("KURIOS: POŁĄCZONY")
             self.kur_status_label.setStyleSheet("color: green")
         
-        # 2. Próba połączenia z oświetleniem (PWM) - niezależnie od kamery
+        # 2. Próba połączenia z platformą (GRBL)
+        self.platform.connect()
+
+        # 3. Próba połączenia z oświetleniem (PWM) - niezależnie od kamery
         # Dzięki temu możesz sterować światłem nawet bez kamery
         self.pwm_controller.connect()
         
