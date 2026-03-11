@@ -79,7 +79,10 @@ class Acquisition:
         # kamera
         self.camera.exposure_time_us = exposure
         try:
-            self.camera.analog_gain = gain
+            if hasattr(self.camera, "gain"):
+                    self.camera.gain = gain
+            elif hasattr(self.camera, "analog_gain"):
+                    self.camera.analog_gain = gain
         except Exception as e:
             print(f"[CAM] Gain nie mógł zostać ustawiony: {e}")
 
@@ -101,7 +104,10 @@ class Acquisition:
             self.camera.exposure_time_us = exposure
             # W SDK zmiana exposure_time_us zwykle aplikuje sie natychmiastowo
             try:
-                self.camera.analog_gain = gain
+                if hasattr(self.camera, "gain"):
+                    self.camera.gain = gain
+                elif hasattr(self.camera, "analog_gain"):
+                    self.camera.analog_gain = gain
             except Exception:
                 pass
             # dla kolejnych klatek
@@ -114,7 +120,7 @@ class Acquisition:
         if self.camera and self.camera_connected:
             self.camera.stop_live_view()
 
-    def scan_sequence(self, starting_wavelength, ending_wavelength, step, mode):
+    def scan_sequence(self, starting_wavelength, ending_wavelength, step, mode, gain):
 
         if not self.camera or not self.filter:
             print("[INFO] Najpierw połącz urządzenia!")
@@ -136,6 +142,15 @@ class Acquisition:
 
         self.filter.SetBandwidthMode(bandwidth_code)
         time.sleep(0.2)
+
+        # Ustawiamy Gain przed rozpoczęciem pętli
+        try:
+            if hasattr(self.camera, "gain"):
+                self.camera.gain = gain
+            elif hasattr(self.camera, "analog_gain"):
+                self.camera.analog_gain = gain
+        except Exception as e:
+            print(f"[CAM] Gain nie mógł zostać ustawiony dla skanowania: {e}")
 
         print(f"[INFO] Rozpoczynam skanowanie: {starting_wavelength}–{ending_wavelength} nm, step={step}, mode={bandwidth_name}")
 
