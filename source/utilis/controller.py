@@ -1,4 +1,4 @@
-import KURIOS_COMMAND_LIB as kurios
+import hardware.KURIOS_COMMAND_LIB as kurios
 
 class KuriosController:
     def __init__(self):
