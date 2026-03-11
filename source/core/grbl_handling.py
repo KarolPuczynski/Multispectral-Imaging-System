@@ -1,61 +1,116 @@
-from threading import Event
+import threading
 import time
 import serial
+import queue
 
-BAUD_RATE = 115200
+class GrblClient:
+    def __init__(self, port="COM7", baud=115200, timeout=1.0):
+        self.port = port
+        self.baud = baud
+        self.timeout = timeout
+        self.ser = None
+        self.lock = threading.Lock()
+        
+        self.command_queue = queue.Queue()
+        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self.worker_thread.start()
 
-class GRBLcontrol():
-    def __init__(self):
-        self.grbl_port_path = 'COM5'
+    def connect(self):
+        if self.ser and self.ser.is_open:
+            return
 
-    def remove_comment(self, string):
-        if (string.find(';') == -1):
-            return string
-        else:
-            return string[:string.index(';')]
+        try:
+            self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
+        except serial.SerialException as e:
+            print(f"Błąd otwarcia portu {self.port}: {e}")
+            return
 
-    def remove_eol_chars(self, string):
-        return string.strip()
+        time.sleep(2.0)
 
-    def send_wake_up(self, ser):
-        ser.write(str.encode("\r\n\r\n"))
-        time.sleep(2)
-        ser.reset_input_buffer()
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
 
-    def wait_for_movement_completion(self, ser, cleaned_line):
-        Event().wait(1)
-        if cleaned_line not in ['$X', '$$']:
-            idle_counter = 0
-            while True:
-                ser.reset_input_buffer()
-                command = str.encode('?' + '\n')
-                ser.write(command)
-                grbl_out = ser.readline()
-                grbl_response = grbl_out.strip().decode('utf-8')
+        self.ser.write(b"\r\n\r\n")
+        self.ser.flush()
+        time.sleep(0.2)
+        self.ser.reset_input_buffer()
+        print(f"Połączono z GRBL na porcie {self.port}")
 
-                if grbl_response != 'ok':
-                    if 'Idle' in grbl_response:
-                        idle_counter += 1
+    def disconnect(self):
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+        self.ser = None
+        print("Rozłączono z GRBL")
 
-                if idle_counter > 10:
+    def _worker_loop(self):
+        while True:
+            try:
+                command = self.command_queue.get()
+                self.send_line_blocking(command)
+                self.command_queue.task_done()
+            except Exception as e:
+                print(f"Błąd w wątku GRBL: {e}")
+
+    def send_line_async(self, line: str):
+        self.command_queue.put(line)
+
+    def send_line_blocking(self, line: str, wait_ok=True) -> str:
+        if not self.ser or not self.ser.is_open:
+            print("Brak połączenia, próba nawiązania...")
+            self.connect()
+            if not self.ser or not self.ser.is_open:
+                raise RuntimeError("Nie połączono z Arduino (COM).")
+
+        cmd = line.strip()
+        if not cmd:
+            return ""
+
+        with self.lock:
+            self.ser.write((cmd + "\n").encode("ascii", errors="ignore"))
+            self.ser.flush()
+
+            if not wait_ok:
+                return ""
+
+            lines = []
+            deadline = time.time() + 3.0
+
+            while time.time() < deadline:
+                raw = self.ser.readline()
+                if not raw:
+                    continue
+
+                s = raw.decode("ascii", errors="ignore").strip()
+                if not s:
+                    continue
+
+                lines.append(s)
+
+                if s == "ok" or s.startswith("error"):
                     break
-        return
+
+            return "\n".join(lines)
+
+    def realtime(self, ch: bytes):
+        if not self.ser or not self.ser.is_open:
+            raise RuntimeError("Nie połączono z Arduino (COM).")
+        with self.lock:
+            self.ser.write(ch)
+            self.ser.flush()
 
     def stream_gcode(self, gcode_path):
-        with open(gcode_path, "r") as file, serial.Serial(self.grbl_port_path, BAUD_RATE) as ser:
-            self.send_wake_up(ser)
+        print(f"Streaming pliku G-code: {gcode_path}")
+        try:
+            with open(gcode_path, "r") as file:
+                for line in file:
+                    if ';' in line:
+                        line = line[:line.index(';')]
+                    cleaned = line.strip()
 
-            for line in file:
-                cleaned_line = self.remove_eol_chars(self.remove_comment(line))
-
-                if cleaned_line:
-                    print("Sending gcode:" + str(cleaned_line))
-                    command = str.encode(line + '\n')
-                    ser.write(command)
-
-                    self.wait_for_movement_completion(ser, cleaned_line)
-
-                    grbl_out = ser.readline()
-                    print(" : ", grbl_out.strip().decode('utf-8'))
-
-            print('End of gcode')
+                    if cleaned:
+                        print(f"Wysyłanie: {cleaned}")
+                        response = self.send_line_blocking(cleaned)
+                        print(f"GRBL odp: {response}")
+            print("Zakończono wysyłanie pliku G-code")
+        except FileNotFoundError:
+            print(f"Błąd: Nie znaleziono pliku {gcode_path}")

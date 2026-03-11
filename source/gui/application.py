@@ -1,55 +1,34 @@
-import tkinter as tk
-from tkinter import ttk
+import sys
 import threading
-
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
+                             QGroupBox, QPushButton, QLabel, QLineEdit, QComboBox, 
+                             QSpinBox, QDoubleSpinBox, QSlider, QMessageBox, QFrame)
+from PyQt6.QtCore import Qt
 from core.acquisition import Acquisition
 from core.preset_handling import PresetManager
 from core.move_platform import Platform
+from gui.live_view import LiveViewWidget
 
-from gui.live_view import LiveViewCanvas
+class App(QMainWindow):
 
-class App:
-
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Multispectral System")
-
-        # 0. Konfiguracja skalowania (czcionki, style)
-        self.configure_styles()
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Multispectral System")
 
         # 1. Inicjalizacja potrzebnych obiektow klas, parametrow (acquisition, presets, platform bandwidth_modes)
         self.init_logic_modules()
 
-        # 2. Zmienne (StringVars, IntVars etc.)
-        self.init_variables()
+        # 2. Inicjalizacja UI 
+        self.init_ui()
 
-        # 3. Ustawienia siatki okna
-        self.setup_window_grid()
-
-        # 4. Budowanie paneli
-        self.create_left_panel()  # Urządzenia, Manual, Oś Z, PWM
-        self.create_middle_panel()  # Wyświetlanie presetu
-        self.create_right_panel()  # Edytor presetow
-
-        # 5. Zamykanie
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        # 3. Parametry wybranego presetu 
+        self.preset_name = None
+        self.preset_mode = None
+        self.preset_start_wavelength = None
+        self.preset_end_wavelength = None
+        self.preset_step = None
 
     # --- LOGIKA I ZMIENNE ---
-
-    def configure_styles(self):
-        screen_height = self.root.winfo_screenheight()
-        
-        base_size = int(screen_height / 70)
-        
-        default_font = ("Segoe UI", base_size)
-        bold_font = ("Segoe UI", base_size, "bold")
-
-        style = ttk.Style()
-        style.configure(".", font=default_font) 
-        style.configure("TButton", font=default_font, padding=10) 
-        style.configure("TLabelframe.Label", font=bold_font) 
-        
-        self.root.option_add("*Font", default_font)
 
     # Funkcja do zainicjowania klas sterujacych sprzetem i danymi
     def init_logic_modules(self):
@@ -58,49 +37,33 @@ class App:
         self.platform = Platform()
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
 
-    # Zainicjowanie wszystkich zmiennych Tkinter używanych w GUI
-    def init_variables(self):
-        # Statusy
-        self.cam_status = tk.StringVar(value="Kamera: Rozłączona")
-        self.kur_status = tk.StringVar(value="KURIOS: Rozłączony")
-
-        # Manualne parametry
-        self.var_wavelength = tk.IntVar(value=500)
-        self.var_exposure = tk.IntVar(value=50000)
-        self.var_bandwidth = tk.StringVar(value="Medium")
-
-        # Parametry wybranego presetu
-        self.var_selected_combo_item = tk.StringVar(value="default")
-        self.preset_name = None
-        self.preset_mode = None
-        self.preset_start_wavelength = None
-        self.preset_end_wavelength = None
-        self.preset_step = None
-
-        # Presety
-        self.var_preset_name = tk.StringVar(value="default")
-        self.var_preset_mode = tk.StringVar(value="Wide")
-        self.var_preset_start_wavelength = tk.IntVar(value=500)
-        self.var_preset_end_wavelength = tk.IntVar(value=600)
-        self.var_preset_step = tk.IntVar(value=10)
-
-        # PWM
-        self.pwm_value = tk.IntVar(value=128)
-
-    # Konfiguracja siatki głównego okna
-    def setup_window_grid(self):
-        # Ustawiamy wagi: boki wąskie (weight=1), środek szeroki (weight=4)
-        self.root.columnconfigure(0, weight=1)
-        self.root.columnconfigure(1, weight=4)
-        self.root.columnconfigure(2, weight=1)
-        self.root.rowconfigure(0, weight=1)
-
     # --- BUDOWANIE INTERFEJSU (GUI) ---
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QGridLayout(central_widget)
+        
+        # proporcja sekcji ui (lewego panelu, srodkowego i prawego)
+        main_layout.setColumnStretch(0, 1)
+        main_layout.setColumnStretch(1, 4)
+        main_layout.setColumnStretch(2, 1)
+
+        # Lewy panel
+        left_panel = self.create_left_panel()
+        main_layout.addWidget(left_panel, 0, 0)
+
+        # Środkowy panel
+        middle_panel = self.create_middle_panel()
+        main_layout.addWidget(middle_panel, 0, 1)
+
+        # Prawy panel
+        right_panel = self.create_right_panel()
+        main_layout.addWidget(right_panel, 0, 2)
 
     # Lewy panel GUI: Przyciski, Statusy, Manual, Oś Z, PWM
     def create_left_panel(self):
-        left_frame = ttk.LabelFrame(self.root, text="Urządzenia & akwizycja")
-        left_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        group_box = QGroupBox("Urządzenia & akwizycja")
+        layout = QVBoxLayout()
 
         # Przyciski sterujące
         buttons = {
@@ -110,141 +73,211 @@ class App:
             "Zakończ": self.on_close
         }
 
-        row_idx = 0
         for text, command in buttons.items():
-            ttk.Button(left_frame, text=text, command=command).grid(row=row_idx, column=0, columnspan=2, sticky="ew")
-            row_idx += 1
+            btn = QPushButton(text)
+            btn.clicked.connect(command)
+            layout.addWidget(btn)
 
         # Statusy polaczania kamery i filtra
-        self.cam_status_label = tk.Label(left_frame, textvariable=self.cam_status, fg="red")
-        self.cam_status_label.grid(row=row_idx, column=0, columnspan=2, sticky="w")
-        row_idx += 1
+        self.cam_status_label = QLabel("Kamera: Rozłączona")
+        self.cam_status_label.setStyleSheet("color: red")
+        layout.addWidget(self.cam_status_label)
 
-        self.kur_status_label = tk.Label(left_frame, textvariable=self.kur_status, fg="red")
-        self.kur_status_label.grid(row=row_idx, column=0, columnspan=2, sticky="w")
-        row_idx += 1
+        self.kur_status_label = QLabel("KURIOS: Rozłączony")
+        self.kur_status_label.setStyleSheet("color: red")
+        layout.addWidget(self.kur_status_label)
 
         # Manualne sterowanie
-        self._create_manual_controls(left_frame, start_row=row_idx)
+        layout.addWidget(self._create_manual_controls())
 
-        # Oś Z i PWM
-        self._create_z_axis_controls(left_frame, start_row=row_idx + 4)
-        self._create_pwm_controls(left_frame, start_row=row_idx + 5)
+        # Oś XYZ i PWM
+        layout.addWidget(self._create_platform_controls())
+        layout.addWidget(self._create_pwm_controls())
+
+        layout.addStretch() # Wypchnięcie elementów do góry
+        group_box.setLayout(layout)
+        return group_box
 
     # Sekcja do wpisywania manualnych parametrow zdjecia
-    def _create_manual_controls(self, parent, start_row):
-        manual_frame = ttk.LabelFrame(parent, text="Parametry zdjęcia (manualne)")
-        manual_frame.grid(row=start_row, column=0, columnspan=2, pady=5, sticky="ew")
+    def _create_manual_controls(self):
+        group = QGroupBox("Parametry zdjęcia (manualne)")
+        layout = QGridLayout()
 
-        ttk.Label(manual_frame, text="λ [nm]").grid(row=0, column=0, sticky="w")
-        ttk.Entry(manual_frame, textvariable=self.var_wavelength, width=10).grid(row=0, column=1)
+        layout.addWidget(QLabel("λ [nm]"), 0, 0)
+        self.spin_wavelength = QSpinBox()
+        self.spin_wavelength.setRange(400, 900)
+        self.spin_wavelength.setValue(500)
+        layout.addWidget(self.spin_wavelength, 0, 1)
 
-        ttk.Label(manual_frame, text="Ekspozycja [µs]").grid(row=1, column=0, sticky="w")
-        ttk.Entry(manual_frame, textvariable=self.var_exposure, width=10).grid(row=1, column=1)
+        layout.addWidget(QLabel("Ekspozycja [µs]"), 1, 0)
+        self.spin_exposure = QSpinBox()
+        self.spin_exposure.setRange(100, 1000000)
+        self.spin_exposure.setValue(50000)
+        layout.addWidget(self.spin_exposure, 1, 1)
 
-        ttk.Label(manual_frame, text="Tryb pasma").grid(row=3, column=0, sticky="w")
-        ttk.Combobox(
-            manual_frame,
-            textvariable=self.var_bandwidth,
-            values=list(self.bandwidth_modes.keys()),
-            state="readonly",
-            width=10
-        ).grid(row=3, column=1)
+        layout.addWidget(QLabel("Tryb pasma"), 2, 0)
+        self.combo_bandwidth = QComboBox()
+        self.combo_bandwidth.addItems(list(self.bandwidth_modes.keys()))
+        self.combo_bandwidth.setCurrentText("Medium")
+        layout.addWidget(self.combo_bandwidth, 2, 1)
 
-    def _create_z_axis_controls(self, parent, start_row):
-        z_frame = ttk.LabelFrame(parent, text="Oś Z ")
-        z_frame.grid(row=start_row, column=0, columnspan=2, pady=5, sticky="ew")
-        ttk.Button(z_frame, text="Z +", command=self.move_single_axis).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
-        ttk.Button(z_frame, text="Z -", command=self.move_single_axis).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
+        group.setLayout(layout)
+        return group
 
-    def _create_pwm_controls(self, parent, start_row):
-        pwm_frame = ttk.LabelFrame(parent, text="Oświetlenie (PWM)")
-        pwm_frame.grid(row=start_row, column=0, columnspan=2, pady=5, sticky="ew")
+    def _create_platform_controls(self):
+        group = QGroupBox("Sterowanie platformą (XYZ)")
+        layout = QGridLayout()
 
-        ttk.Scale(
-            pwm_frame, from_=0, to=255, variable=self.pwm_value,
-            orient="horizontal", command=self.adjust_lighting
-        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=5)
+        # Pole tekstowe na krok
+        layout.addWidget(QLabel("Krok [mm]:"), 0, 0)
+        self.spin_platform_step = QDoubleSpinBox()
+        self.spin_platform_step.setRange(0.01, 50.0)
+        self.spin_platform_step.setValue(1.0)
+        self.spin_platform_step.setSingleStep(0.1)
+        layout.addWidget(self.spin_platform_step, 0, 1)
 
-        ttk.Label(pwm_frame, text="PWM: 128").grid(row=1, column=0, columnspan=2)
+        # Oś X
+        btn_xm = QPushButton("X -")
+        btn_xm.clicked.connect(lambda: self.validate_and_move('X', -1))
+        layout.addWidget(btn_xm, 1, 0)
+        
+        btn_xp = QPushButton("X +")
+        btn_xp.clicked.connect(lambda: self.validate_and_move('X', 1))
+        layout.addWidget(btn_xp, 1, 1)
 
+        # Oś Y
+        btn_ym = QPushButton("Y -")
+        btn_ym.clicked.connect(lambda: self.validate_and_move('Y', -1))
+        layout.addWidget(btn_ym, 2, 0)
+        
+        btn_yp = QPushButton("Y +")
+        btn_yp.clicked.connect(lambda: self.validate_and_move('Y', 1))
+        layout.addWidget(btn_yp, 2, 1)
+
+        # Oś Z
+        btn_zm = QPushButton("Z -")
+        btn_zm.clicked.connect(lambda: self.validate_and_move('Z', -1))
+        layout.addWidget(btn_zm, 3, 0)
+        
+        btn_zp = QPushButton("Z +")
+        btn_zp.clicked.connect(lambda: self.validate_and_move('Z', 1))
+        layout.addWidget(btn_zp, 3, 1)
+
+        # Homing / Unlock
+        btn_home = QPushButton("Home ($H)")
+        btn_home.clicked.connect(self.platform_homing)
+        layout.addWidget(btn_home, 4, 0)
+        
+        btn_unlock = QPushButton("Unlock ($X)")
+        btn_unlock.clicked.connect(self.platform_unlock)
+        layout.addWidget(btn_unlock, 4, 1)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_pwm_controls(self):
+        group = QGroupBox("Oświetlenie (PWM)")
+        layout = QVBoxLayout()
+
+        self.pwm_slider = QSlider(Qt.Orientation.Horizontal)
+        self.pwm_slider.setRange(0, 255)
+        self.pwm_slider.setValue(128)
+        self.pwm_slider.valueChanged.connect(self.adjust_lighting) # wywołuje przy ruchu
+        layout.addWidget(self.pwm_slider)
+
+        self.label_pwm_val = QLabel("PWM: 128")
+        self.label_pwm_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_pwm_val)
+
+        group.setLayout(layout)
+        return group
 
     # Srodkowa kolumna GUI: wyswietlanie aktywnego presetu i live view
     def create_middle_panel(self):
-        mid_frame = ttk.LabelFrame(self.root, text="Podgląd i Preset")
-        mid_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-        # Konfiguracja siatki wewnątrz mid_frame, aby Live View (row 0) się rozciągał
-        mid_frame.columnconfigure(0, weight=1)
-        mid_frame.rowconfigure(0, weight=1)
+        group = QGroupBox("Podgląd i Preset")
+        layout = QVBoxLayout()
 
         # LIVE VIEW
         # Kontener na obraz z kamery
-        self.live_view_frame = tk.Frame(mid_frame, width=400, height=300, bg="black")
-        self.live_view_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
-        self.live_view_frame.grid_propagate(False)
+        self.live_view_widget = LiveViewWidget()
+        layout.addWidget(self.live_view_widget, stretch=1)
 
-        self.live_canvas = LiveViewCanvas(self.live_view_frame)
-
-        self.btn_live = ttk.Button(mid_frame, text="Start Live View", command=self.toggle_live_view)
-        self.btn_live.grid(row=1, column=0, columnspan=2, sticky="ew", pady=5)
+        self.btn_live = QPushButton("Start Live View")
+        self.btn_live.clicked.connect(self.toggle_live_view)
+        layout.addWidget(self.btn_live)
 
         # PRESETY
-        ttk.Separator(mid_frame, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky="ew", pady=10)
+        # Separator wizualny
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
 
-        ttk.Label(mid_frame, text="Wybierz preset:").grid(row=3, column=0, sticky="w")
-        self.preset_combo = ttk.Combobox(
-            mid_frame,
-            textvariable=self.var_selected_combo_item,
-            values=list(self.presets.get_preset_names()),
-            state="readonly",
-            width=20
-        )
-        self.preset_combo.grid(row=3, column=1, sticky="ew")
-        self.preset_combo.bind("<<ComboboxSelected>>", self.on_preset_selected)
+        # Wybór presetu
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Wybierz preset:"))
+        
+        self.combo_select_preset = QComboBox()
+        self.combo_select_preset.addItems(list(self.presets.get_preset_names()))
+        self.combo_select_preset.currentTextChanged.connect(self.on_preset_selected)
+        preset_layout.addWidget(self.combo_select_preset)
+        
+        layout.addLayout(preset_layout)
 
-        self.label_mode = ttk.Label(mid_frame, text="Mode: ---")
-        self.label_mode.grid(row=4, column=0, columnspan=2, sticky="w")
+        self.label_mode = QLabel("Mode: ---")
+        layout.addWidget(self.label_mode)
 
-        self.label_range = ttk.Label(mid_frame, text="Zakres λ: ---")
-        self.label_range.grid(row=5, column=0, columnspan=2, sticky="w")
+        self.label_range = QLabel("Zakres λ: ---")
+        layout.addWidget(self.label_range)
 
-        self.label_step = ttk.Label(mid_frame, text="Step: ---")
-        self.label_step.grid(row=6, column=0, columnspan=2, sticky="w")
+        self.label_step = QLabel("Step: ---")
+        layout.addWidget(self.label_step)
 
-        self.label_geo = ttk.Label(mid_frame, text="Geometry: ---")
-        self.label_geo.grid(row=7, column=0, columnspan=2, sticky="w")
+        self.label_geo = QLabel("Geometry: ---")
+        layout.addWidget(self.label_geo)
 
+        group.setLayout(layout)
+        return group
 
     # Prawa kolumna GUI: edytor presetów
     def create_right_panel(self):
-        preset_frame = ttk.LabelFrame(self.root, text="Edytor presetów")
-        preset_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+        group = QGroupBox("Edytor presetów")
+        layout = QGridLayout()
 
-        fields = [
-            ("Nazwa presetu", self.var_preset_name),
-            ("Mode", self.var_preset_mode),
-            ("Start λ [nm]", self.var_preset_start_wavelength),
-            ("Stop λ [nm]", self.var_preset_end_wavelength),
-            ("Step [nm]", self.var_preset_step)
-        ]
+        layout.addWidget(QLabel("Nazwa presetu"), 0, 0)
+        self.edit_preset_name = QLineEdit("default")
+        layout.addWidget(self.edit_preset_name, 0, 1)
 
-        for i, (label_text, variable) in enumerate(fields):
-            ttk.Label(preset_frame, text=label_text).grid(row=i, column=0, sticky="w")
-            if i != 1:
-                ttk.Entry(preset_frame, textvariable=variable, width=20).grid(row=i, column=1)
-            else:
-                ttk.Combobox(
-                    preset_frame,
-                    textvariable=self.var_preset_mode,
-                    values=list(self.bandwidth_modes.keys()),
-                    state="readonly",
-                    width=10
-                ).grid(row=i, column=1)
+        layout.addWidget(QLabel("Mode"), 1, 0)
+        self.combo_preset_mode = QComboBox()
+        self.combo_preset_mode.addItems(list(self.bandwidth_modes.keys()))
+        layout.addWidget(self.combo_preset_mode, 1, 1)
 
-        ttk.Button(
-            preset_frame, text="Zapisz preset", command=self.save_preset
-        ).grid(row=len(fields) + 1, column=0, columnspan=2, pady=15, sticky="ew")
+        layout.addWidget(QLabel("Start λ [nm]"), 2, 0)
+        self.spin_preset_start = QSpinBox()
+        self.spin_preset_start.setRange(400, 900)
+        self.spin_preset_start.setValue(500)
+        layout.addWidget(self.spin_preset_start, 2, 1)
+
+        layout.addWidget(QLabel("Stop λ [nm]"), 3, 0)
+        self.spin_preset_stop = QSpinBox()
+        self.spin_preset_stop.setRange(400, 900)
+        self.spin_preset_stop.setValue(600)
+        layout.addWidget(self.spin_preset_stop, 3, 1)
+
+        layout.addWidget(QLabel("Step [nm]"), 4, 0)
+        self.spin_preset_step = QSpinBox()
+        self.spin_preset_step.setRange(1, 100)
+        self.spin_preset_step.setValue(10)
+        layout.addWidget(self.spin_preset_step, 4, 1)
+
+        btn_save = QPushButton("Zapisz preset")
+        btn_save.clicked.connect(self.save_preset)
+        layout.addWidget(btn_save, 5, 0, 1, 2) # span 2 columns
+
+        layout.setRowStretch(6, 1) # push up
+        group.setLayout(layout)
+        return group
 
     # --- OBSŁUGA ZDARZEŃ  ---
 
@@ -253,25 +286,29 @@ class App:
         success = self.acquisition.connect_hardware()
 
         if success:
-            self.cam_status.set("Kamera: POŁĄCZONA")
-            self.cam_status_label.configure(fg="green")
+            self.cam_status_label.setText("Kamera: POŁĄCZONA")
+            self.cam_status_label.setStyleSheet("color: green")
 
-            self.kur_status.set("KURIOS: POŁĄCZONY")
-            self.kur_status_label.configure(fg="green")
+            self.kur_status_label.setText("KURIOS: POŁĄCZONY")
+            self.kur_status_label.setStyleSheet("color: green")
         else:
             pass
 
-    # Przechwytywanie zdjęcia zgodnie z manualnymi wartosciami wpisanymi przez uzytkownika
+    # przechwytywanie zdjecia z manulnymi parametrami
     def capture_image(self):
-        wavelength = self.var_wavelength.get()
-        exposure_time = self.var_exposure.get()
-        bandwidth_name = self.var_bandwidth.get()
+        wavelength = self.spin_wavelength.value()
+        exposure_time = self.spin_exposure.value()
+        bandwidth_name = self.combo_bandwidth.currentText()
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
 
         self.acquisition.capture_image(wavelength, exposure_time, 1.0, bandwidth_name, bandwidth_code)
 
-    # Skanowanie (robienie wielu zdjec dla okresllonych parametrow) probki zgodnie z wartosciami w wybranym presecie
+    # skanowanie zakresu z paramsami z presetow
     def start_scan(self):
+        if not self.preset_start_wavelength:
+            QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu!")
+            return
+            
         start = self.preset_start_wavelength
         stop = self.preset_end_wavelength
         step = self.preset_step
@@ -287,36 +324,64 @@ class App:
         scan_thread.daemon = True
         scan_thread.start()
 
-    # Reczny ruch na wybranej osi
-    def move_single_axis(self, gcode = 'G91 X10'):
-        self.platform.move_single_axis(gcode)
+    # sprawdzamy czy uzytkownik nie wpisal za duzej wartosci kroku 
+    # trzeba i tak jakos zabezpieczyc przed wyslaniem wartosci jak 
+    # bedziemy bardzo blisko krawedzi zakresu
+    def validate_and_move(self, axis, direction):
+        step = self.spin_platform_step.value()
 
-    # Dostosowanie mocy naświetlania probki
+        # 2. Sprawdzenie czy wartość jest dodatnia
+        if step <= 0:
+            QMessageBox.warning(self, "Ostrzeżenie", "Krok musi być wartością dodatnią.")
+            return
+
+        # 3. Zabezpieczenie przed zbyt dużym krokiem (np. max 30mm)
+        if step > 30.0:
+            QMessageBox.warning(self, "Ostrzeżenie", f"Wartość {step} mm jest zbyt duża! Maksymalny bezpieczny krok to 50 mm.")
+            return
+
+        distance = step * direction 
+        if axis == 'Z': 
+            distance = distance / 5 # wspolczynnik skalowanosci os Z (XD)
+
+        if self.platform.validate_platform_movement(axis, distance):
+            self.platform.move_single_axis(f'G91 {axis}{distance} F500')
+        else:
+            QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {distance} mm w osi {axis} przekracza zakres platformy!")
+
+    # homing platformy 
+    def platform_homing(self):
+        self.platform.homing()
+
+    # Odblokowanie platformy (domyslnie po wlaczeniu jest zablokowana, i wtedy można tylko ja homingowac)
+    def platform_unlock(self):
+        self.platform.unlock()
+
+    # regulacja oswietleenia probki
     def adjust_lighting(self):
-        self.platform.adjust_lighting()
+        val = self.pwm_slider.value()
+        self.label_pwm_val.setText(f"PWM: {val}")
+        # self.platform.adjust_lighting(val) # zakładając, że metoda przyjmuje parametr
+        pass
 
-    # Zapisanie presetu do pliku presets.json
     def save_preset(self):
-        # Nazwa presetu i sprawdzenie czy jakakolwiek jest
-        name = self.var_preset_name.get()
+        name = self.edit_preset_name.text()
         if not name:
             print("Błąd: Podaj nazwę presetu!")
             return
 
-        # pobranie danych z entry boxow z gui do presetu
         preset_data = {
-            "mode": self.var_preset_mode.get(),
-            "start_wavelength": self.var_preset_start_wavelength.get(),
-            "end_wavelength": self.var_preset_end_wavelength.get(),
-            "step": self.var_preset_step.get()
+            "mode": self.combo_preset_mode.currentText(),
+            "start_wavelength": self.spin_preset_start.value(),
+            "end_wavelength": self.spin_preset_stop.value(),
+            "step": self.spin_preset_step.value()
         }
 
-        # wywolanie funkcji save_new_preset z core.preset_handling
         self.presets.save_new_preset(name, preset_data)
 
-        # Odswiezenie listy dla aktywnego presetu (srodkowy panel)
         updated_names = list(self.presets.get_preset_names())
-        self.preset_combo["values"] = updated_names
+        self.combo_select_preset.clear()
+        self.combo_select_preset.addItems(updated_names)
 
     def toggle_live_view(self):
         # Sprawdzamy czy hardware jest podłączony
@@ -324,21 +389,20 @@ class App:
             print("Najpierw połącz kamerę!")
             return
 
-        if self.btn_live["text"] == "Start Live View":
+        if self.btn_live.text() == "Start Live View":
             # Start
             queue = self.acquisition.camera.start_live_view()
             if queue:
-                self.live_canvas.start(queue)
-                self.btn_live["text"] = "Stop Live View"
+                self.live_view_widget.start_live_view(queue)
+                self.btn_live.setText("Stop Live View")
         else:
             # Stop
-            self.live_canvas.stop()
+            self.live_view_widget.stop_live_view()
             self.acquisition.camera.stop_live_view()
-            self.btn_live["text"] = "Start Live View"
+            self.btn_live.setText("Start Live View")
 
-    # Wyswietlenie paramatrow wybranego presetu, ktory bedzie uzywany do skanowania
-    def on_preset_selected(self, event):
-        selected_name = self.preset_combo.get()
+    def on_preset_selected(self, text):
+        selected_name = text
 
         preset_data = self.presets.get_preset_data(selected_name)
 
@@ -353,16 +417,22 @@ class App:
             self.preset_end_wavelength = p_end
             self.preset_step = p_step
 
-            self.label_mode.config(text=f"Mode: {p_mode}")
-            self.label_range.config(text=f"Zakres λ: {p_start} - {p_end} nm")
-            self.label_step.config(text=f"Step: {p_step} nm")
+            self.label_mode.setText(f"Mode: {p_mode}")
+            self.label_range.setText(f"Zakres λ: {p_start} - {p_end} nm")
+            self.label_step.setText(f"Step: {p_step} nm")
 
             print(f"Załadowano preset '{selected_name}' do zmiennych systemowych.")
 
-    # Obsluga wylaczenia programu jak i zapewnienie o poprawnym rozlaczeniu sie z hardware'em
-    def on_close(self):
+    # zamykamy okkno jak i ODLACZAMY KAMERE I FILTR
+    def on_close(self, event=None):
         print("Zamykanie aplikacji i zwalnianie zasobów...")
         if hasattr(self, 'acquisition'):
             self.acquisition.cleanup()
 
-        self.root.destroy()
+        if event:
+            event.accept()
+        else:
+            self.close()
+
+    def closeEvent(self, event):
+        self.on_close(event)
