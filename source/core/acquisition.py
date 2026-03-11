@@ -1,5 +1,6 @@
 import time
-from config.settings import kurios_tuning_times, exposure_times
+import json
+import os
 from hardware.camera import ThorlabsCamera
 from hardware.KURIOS_COMMAND_LIB import Kurios
 
@@ -17,6 +18,22 @@ class Acquisition:
         self.bandwidth_modes = {"Wide": 2,
                                 "Medium": 4,
                                 "Narrow": 8}
+        
+        # Ładowanie danych konfiguracyjnych z plików JSON
+        self.exposure_times = self._load_json("source/data/exposure_time.json")
+        self.tuning_times = self._load_json("source/data/tuning_times.json")
+
+    def _load_json(self, path):
+        if not os.path.exists(path):
+            # Wypisujemy tylko info, nie przerywamy działania (użyte zostaną wartości domyślne)
+            print(f"[INFO] Plik konfiguracyjny {path} nie został znaleziony.")
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[INFO] Błąd podczas ładowania {path}: {e}")
+            return {}
 
     def connect_hardware(self):
         print("[INFO] Connecting hardware...")
@@ -160,12 +177,15 @@ class Acquisition:
             self.filter.SetWavelength(wavelength)
 
             if i > 0:
-                delay_ms = kurios_tuning_times[bandwidth_name].get((prev_wavelength, wavelength), 200)
+                # Pobieramy czas przestrojenia z JSON (klucz w formacie "start,end")
+                key = f"{prev_wavelength},{wavelength}"
+                delay_ms = self.tuning_times.get(bandwidth_name, {}).get(key, 200)
                 time.sleep(delay_ms / 1000.0)
             else:
                 time.sleep(0.2)
 
-            exp = exposure_times[bandwidth_name].get(wavelength, 10000)
+            # Pobieramy czas ekspozycji z JSON (klucz to string)
+            exp = self.exposure_times.get(bandwidth_name, {}).get(str(wavelength), 10000)
             self.camera.exposure_time_us = exp
 
             filename = f"scan_{i+1}_{wavelength}nm_{bandwidth_name}.png"
@@ -174,7 +194,8 @@ class Acquisition:
             print(f"[CAM] Zapisano {filename} (ekspozycja: {exp} µs)")
             prev_wavelength = wavelength
 
-        delay_back = kurios_tuning_times[bandwidth_name].get((700, 450), 200)
+        # Czas powrotu do 450 nm (z 700 nm)
+        delay_back = self.tuning_times.get(bandwidth_name, {}).get("700,450", 200)
         self.filter.SetWavelength(450)
         time.sleep(delay_back / 1000.0)
 

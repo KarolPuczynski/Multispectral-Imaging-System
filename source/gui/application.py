@@ -302,11 +302,23 @@ class App(QMainWindow):
         self.combo_preset_stop = QComboBox()
         layout.addWidget(self.combo_preset_stop, 4, 1)
 
+        layout.addWidget(QLabel("Wysokość [mm]"), 5, 0)
+        self.spin_preset_height = QDoubleSpinBox()
+        self.spin_preset_height.setRange(0.0, 200.0)
+        self.spin_preset_height.setValue(10.0)
+        layout.addWidget(self.spin_preset_height, 5, 1)
+
+        layout.addWidget(QLabel("Długość [mm]"), 6, 0)
+        self.spin_preset_length = QDoubleSpinBox()
+        self.spin_preset_length.setRange(0.0, 200.0)
+        self.spin_preset_length.setValue(50.0)
+        layout.addWidget(self.spin_preset_length, 6, 1)
+
         btn_save = QPushButton("Zapisz preset")
         btn_save.clicked.connect(self.save_preset)
-        layout.addWidget(btn_save, 5, 0, 1, 2) # span 2 columns
+        layout.addWidget(btn_save, 7, 0, 1, 2) # span 2 columns
 
-        layout.setRowStretch(6, 1) # push up
+        layout.setRowStretch(8, 1) # push up
         group.setLayout(layout)
         
         # Inicjalizacja ograniczeń dla domyślnego kroku (10)
@@ -519,7 +531,9 @@ class App(QMainWindow):
             "mode": self.combo_preset_mode.currentText(),
             "start_wavelength": start_val,
             "end_wavelength": end_val,
-            "step": step_val
+            "step": step_val,
+            "sample_height": self.spin_preset_height.value(),
+            "sample_length": self.spin_preset_length.value()
         }
 
         self.presets.save_new_preset(name, preset_data)
@@ -554,6 +568,7 @@ class App(QMainWindow):
                 self.label_mode.setText("Mode: ---")
                 self.label_range.setText("Zakres λ: ---")
                 self.label_step.setText("Step: ---")
+                self.label_geo.setText("Geometry: ---")
                 self.preset_name = None
                 self.preset_start_wavelength = None
 
@@ -588,6 +603,8 @@ class App(QMainWindow):
             p_start = preset_data.get("start_wavelength", 500)
             p_end = preset_data.get("end_wavelength", 600)
             p_step = preset_data.get("step", 10)
+            p_height = preset_data.get("sample_height", 0.0)
+            p_length = preset_data.get("sample_length", 0.0)
 
             self.preset_mode = p_mode
             self.preset_start_wavelength = p_start
@@ -597,6 +614,7 @@ class App(QMainWindow):
             self.label_mode.setText(f"Mode: {p_mode}")
             self.label_range.setText(f"Zakres λ: {p_start} - {p_end} nm")
             self.label_step.setText(f"Step: {p_step} nm")
+            self.label_geo.setText(f"Geometry: H={p_height}mm, L={p_length}mm")
 
             print(f"[INFO] Załadowano preset '{selected_name}' do zmiennych systemowych.")
 
