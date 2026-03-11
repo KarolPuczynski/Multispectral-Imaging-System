@@ -89,6 +89,31 @@ class Acquisition:
         self.camera.save_frame(filename)
         print(f"Zapisano zdjęcie: {filename}")
 
+    def set_hardware_params(self, wavelength, exposure, bandwidth_name, gain):
+        """Aktualizuje parametry sprzetu (Live View) bez zapisu zdjecia."""
+        if self.filter and self.kurios_connected:
+            bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
+            self.filter.SetWavelength(wavelength)
+            self.filter.SetBandwidthMode(bandwidth_code)
+
+        if self.camera and self.camera_connected:
+            # Ustawiamy ekspozycje kamery
+            self.camera.exposure_time_us = exposure
+            # W SDK zmiana exposure_time_us zwykle aplikuje sie natychmiastowo
+            try:
+                self.camera.analog_gain = gain
+            except Exception:
+                pass
+            # dla kolejnych klatek
+
+    def start_live_view(self):
+        if self.camera and self.camera_connected:
+            return self.camera.start_live_view()
+
+    def stop_live_view(self):
+        if self.camera and self.camera_connected:
+            self.camera.stop_live_view()
+
     def scan_sequence(self, starting_wavelength, ending_wavelength, step, mode):
 
         if not self.camera or not self.filter:

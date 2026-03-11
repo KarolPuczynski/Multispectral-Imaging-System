@@ -105,21 +105,29 @@ class App(QMainWindow):
 
         layout.addWidget(QLabel("λ [nm]"), 0, 0)
         self.spin_wavelength = QSpinBox()
-        self.spin_wavelength.setRange(400, 900)
+        self.spin_wavelength.setRange(450, 700)
         self.spin_wavelength.setValue(500)
+        self.spin_wavelength.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_wavelength, 0, 1)
 
         layout.addWidget(QLabel("Ekspozycja [µs]"), 1, 0)
         self.spin_exposure = QSpinBox()
         self.spin_exposure.setRange(100, 1000000)
         self.spin_exposure.setValue(50000)
+        self.spin_exposure.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_exposure, 1, 1)
 
-        layout.addWidget(QLabel("Tryb pasma"), 2, 0)
+        layout.addWidget(QLabel("Gain"), 2, 0)
+        self.spin_gain = QDoubleSpinBox()
+        self.spin_gain.setRange(0.0, 100.0) # Zakres zależy od kamery, bezpiecznie 0-100
+        self.spin_gain.setValue(1.0)
+        self.spin_gain.valueChanged.connect(self.refresh_live_parameters)
+        layout.addWidget(self.spin_gain, 2, 1)
+
         self.combo_bandwidth = QComboBox()
         self.combo_bandwidth.addItems(list(self.bandwidth_modes.keys()))
-        self.combo_bandwidth.setCurrentText("Medium")
-        layout.addWidget(self.combo_bandwidth, 2, 1)
+        layout.addWidget(QLabel("Tryb pasma"), 3, 0)
+        layout.addWidget(self.combo_bandwidth, 3, 1)
 
         group.setLayout(layout)
         return group
@@ -202,9 +210,17 @@ class App(QMainWindow):
         self.live_view_widget = LiveViewWidget()
         layout.addWidget(self.live_view_widget, stretch=1)
 
-        self.btn_live = QPushButton("Start Live View")
-        self.btn_live.clicked.connect(self.toggle_live_view)
-        layout.addWidget(self.btn_live)
+        live_layout = QHBoxLayout()
+        self.btn_start_live = QPushButton("Start Live View")
+        self.btn_start_live.clicked.connect(self.start_live_view_action)
+        live_layout.addWidget(self.btn_start_live)
+
+        self.btn_stop_live = QPushButton("Stop Live View")
+        self.btn_stop_live.clicked.connect(self.stop_live_view_action)
+        self.btn_stop_live.setEnabled(False)
+        live_layout.addWidget(self.btn_stop_live)
+
+        layout.addLayout(live_layout)
 
         # PRESETY
         # Separator wizualny
@@ -296,12 +312,30 @@ class App(QMainWindow):
 
     # przechwytywanie zdjecia z manulnymi parametrami
     def capture_image(self):
+        # Zabezpieczenie: Zatrzymaj Live View, jeśli działa, zanim przejmiesz kontrolę nad kamerą
+        if self.acquisition.camera_connected and self.acquisition.camera.is_live:
+            print("Zatrzymywanie Live View przed wykonaniem zdjęcia...")
+            self.stop_live_view_action()
+
         wavelength = self.spin_wavelength.value()
         exposure_time = self.spin_exposure.value()
+        gain = self.spin_gain.value()
         bandwidth_name = self.combo_bandwidth.currentText()
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
 
-        self.acquisition.capture_image(wavelength, exposure_time, 1.0, bandwidth_name, bandwidth_code)
+        self.acquisition.capture_image(wavelength, exposure_time, gain, bandwidth_name, bandwidth_code)
+
+    # Funkcja aktualizujaca parametry sprzetu na biezaco (dla Live View)
+    def refresh_live_parameters(self):
+        # Pobieramy wartosci z GUI
+        wavelength = self.spin_wavelength.value()
+        exposure = self.spin_exposure.value()
+        gain = self.spin_gain.value()
+        bandwidth_name = self.combo_bandwidth.currentText()
+
+        # Wysylamy do acquisition (tylko jesli sprzet jest polaczony, metoda w acquisition to sprawdza)
+        # Sprawdzamy czy Live View jest aktywne lub czy po prostu chcemy ustawic sprzet
+        self.acquisition.set_hardware_params(wavelength, exposure, bandwidth_name, gain)
 
     # skanowanie zakresu z paramsami z presetow
     def start_scan(self):
@@ -309,6 +343,11 @@ class App(QMainWindow):
             QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu!")
             return
             
+        # Zabezpieczenie: Zatrzymaj Live View przed skanowaniem
+        if self.acquisition.camera_connected and self.acquisition.camera.is_live:
+            print("Zatrzymywanie Live View przed rozpoczęciem skanowania...")
+            self.stop_live_view_action()
+
         start = self.preset_start_wavelength
         stop = self.preset_end_wavelength
         step = self.preset_step
@@ -383,23 +422,26 @@ class App(QMainWindow):
         self.combo_select_preset.clear()
         self.combo_select_preset.addItems(updated_names)
 
-    def toggle_live_view(self):
+    def start_live_view_action(self):
         # Sprawdzamy czy hardware jest podłączony
         if not self.acquisition.camera_connected:
             print("Najpierw połącz kamerę!")
             return
 
-        if self.btn_live.text() == "Start Live View":
-            # Start
-            queue = self.acquisition.camera.start_live_view()
-            if queue:
-                self.live_view_widget.start_live_view(queue)
-                self.btn_live.setText("Stop Live View")
-        else:
-            # Stop
-            self.live_view_widget.stop_live_view()
-            self.acquisition.camera.stop_live_view()
-            self.btn_live.setText("Start Live View")
+        # Przed startem ustawiamy parametry z panelu manualnego
+        self.refresh_live_parameters()
+        
+        queue = self.acquisition.start_live_view()
+        if queue:
+            self.live_view_widget.start_live_view(queue)
+            self.btn_start_live.setEnabled(False)
+            self.btn_stop_live.setEnabled(True)
+
+    def stop_live_view_action(self):
+        self.live_view_widget.stop_live_view()
+        self.acquisition.stop_live_view()
+        self.btn_start_live.setEnabled(True)
+        self.btn_stop_live.setEnabled(False)
 
     def on_preset_selected(self, text):
         selected_name = text
