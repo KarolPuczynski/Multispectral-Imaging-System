@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 from core.acquisition import Acquisition
 from core.preset_handling import PresetManager
 from core.move_platform import Platform
+from hardware.led_controller import LedController
 from gui.live_view import LiveViewWidget
 
 class App(QMainWindow):
@@ -35,6 +36,8 @@ class App(QMainWindow):
         self.acquisition = Acquisition()
         self.presets = PresetManager("presets.json")
         self.platform = Platform()
+        # Tutaj ustaw odpowiedni port COM dla Arduino od świateł (inny niż dla platformy!)
+        self.pwm_controller = LedController(port="COM6")
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
 
     # --- BUDOWANIE INTERFEJSU (GUI) ---
@@ -299,16 +302,21 @@ class App(QMainWindow):
 
     # Łączenie się z kamera i filtrem przestrajalnym
     def connect(self):
+        # 1. Próba połączenia z głównym sprzętem (Kamera + Filtr)
         success = self.acquisition.connect_hardware()
-
         if success:
             self.cam_status_label.setText("Kamera: POŁĄCZONA")
             self.cam_status_label.setStyleSheet("color: green")
 
             self.kur_status_label.setText("KURIOS: POŁĄCZONY")
             self.kur_status_label.setStyleSheet("color: green")
-        else:
-            pass
+        
+        # 2. Próba połączenia z oświetleniem (PWM) - niezależnie od kamery
+        # Dzięki temu możesz sterować światłem nawet bez kamery
+        self.pwm_controller.connect()
+        
+        # Wyślij aktualną wartość suwaka od razu po połączeniu
+        self.adjust_lighting()
 
     # przechwytywanie zdjecia z manulnymi parametrami
     def capture_image(self):
@@ -400,8 +408,8 @@ class App(QMainWindow):
     def adjust_lighting(self):
         val = self.pwm_slider.value()
         self.label_pwm_val.setText(f"PWM: {val}")
-        # self.platform.adjust_lighting(val) # zakładając, że metoda przyjmuje parametr
-        pass
+        # Wysyłamy wartość do dedykowanego sterownika PWM
+        self.pwm_controller.set_pwm(val)
 
     def save_preset(self):
         name = self.edit_preset_name.text()
@@ -470,6 +478,9 @@ class App(QMainWindow):
         print("Zamykanie aplikacji i zwalnianie zasobów...")
         if hasattr(self, 'acquisition'):
             self.acquisition.cleanup()
+        if hasattr(self, 'pwm_controller'):
+            self.pwm_controller.set_pwm(0)
+            self.pwm_controller.close()
 
         if event:
             event.accept()
