@@ -340,15 +340,14 @@ class App(QMainWindow):
             QMessageBox.warning(self, "Ostrzeżenie", f"Wartość {step} mm jest zbyt duża! Maksymalny bezpieczny krok to 50 mm.")
             return
 
-        dist = step * direction # np. 5.0 * -1 = -5.0
+        distance = step * direction 
         if axis == 'Z': 
-            dist = dist / 5 # wspolczynnik skalowanosci os Z (XD)
-        self.move_single_axis(f'G91')
-        self.move_single_axis(f'G1 {axis}{dist} F500')
+            distance = distance / 5 # wspolczynnik skalowanosci os Z (XD)
 
-    # reczny ruch na osi
-    def move_single_axis(self, gcode = 'G91 X1'):
-        self.platform.move_single_axis(gcode)
+        if self.platform.validate_platform_movement(axis, distance):
+            self.platform.move_single_axis(f'G91 {axis}{distance} F500')
+        else:
+            QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {distance} mm w osi {axis} przekracza zakres platformy!")
 
     # homing platformy 
     def platform_homing(self):

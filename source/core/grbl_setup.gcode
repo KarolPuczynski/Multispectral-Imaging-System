@@ -1,3 +1,6 @@
+;docs for grbl commands
+;https://www.sainsmart.com/blogs/news/grbl-v1-1-quick-reference?srsltid=AfmBOooLKuBRPyPlQbkW4n3DT5nuxABBULs-m1P1F4lWH_mXtHo27Lxf
+;
 $0=10      ; Step pulse, microseconds
 $1=25      ; Step idle delay, milliseconds
 $2=0       ; Step port invert, XYZmask

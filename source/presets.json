@@ -28,5 +28,11 @@
         "start_wavelength": 500,
         "end_wavelength": 600,
         "step": 10
+    },
+    "testowy preset": {
+        "mode": "Medium",
+        "start_wavelength": 500,
+        "end_wavelength": 600,
+        "step": 15
     }
 }

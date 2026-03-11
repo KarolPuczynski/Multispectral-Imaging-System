@@ -25,13 +25,11 @@ class GrblClient:
             print(f"Błąd otwarcia portu {self.port}: {e}")
             return
 
-        # GRBL resetuje się po otwarciu portu (DTR). Daj mu chwilę.
         time.sleep(2.0)
 
         self.ser.reset_input_buffer()
         self.ser.reset_output_buffer()
 
-        # Obudź GRBL
         self.ser.write(b"\r\n\r\n")
         self.ser.flush()
         time.sleep(0.2)
@@ -58,7 +56,6 @@ class GrblClient:
 
     def send_line_blocking(self, line: str, wait_ok=True) -> str:
         if not self.ser or not self.ser.is_open:
-            # Automatyczna próba połączenia, jeśli nie połączono
             print("Brak połączenia, próba nawiązania...")
             self.connect()
             if not self.ser or not self.ser.is_open:
@@ -106,7 +103,6 @@ class GrblClient:
         try:
             with open(gcode_path, "r") as file:
                 for line in file:
-                    # Usuwanie komentarzy i białych znaków
                     if ';' in line:
                         line = line[:line.index(';')]
                     cleaned = line.strip()
