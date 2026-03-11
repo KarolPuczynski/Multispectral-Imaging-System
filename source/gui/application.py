@@ -9,6 +9,7 @@ from core.preset_handling import PresetManager
 from hardware.move_platform import Platform
 from hardware.led_controller import LedController
 from gui.live_view import LiveViewWidget
+from gui.advanced_mode import AdvancedSettingsDialog
 
 class App(QMainWindow):
 
@@ -73,6 +74,7 @@ class App(QMainWindow):
             "Połącz": self.connect,
             "Zrób zdjęcie": self.capture_image,
             "Skanuj zakres": self.start_scan,
+            "Ustawienia / Konsola": self.open_settings,
             "Zakończ": self.on_close
         }
 
@@ -142,7 +144,7 @@ class App(QMainWindow):
         # Pole tekstowe na krok
         layout.addWidget(QLabel("Krok [mm]:"), 0, 0)
         self.spin_platform_step = QDoubleSpinBox()
-        self.spin_platform_step.setRange(0.01, 50.0)
+        self.spin_platform_step.setRange(0.01, 30.0)
         self.spin_platform_step.setValue(1.0)
         self.spin_platform_step.setSingleStep(0.1)
         layout.addWidget(self.spin_platform_step, 0, 1)
@@ -274,13 +276,13 @@ class App(QMainWindow):
 
         layout.addWidget(QLabel("Start λ [nm]"), 2, 0)
         self.spin_preset_start = QSpinBox()
-        self.spin_preset_start.setRange(400, 900)
+        self.spin_preset_start.setRange(450, 700)   #filtr ma zakres od 430
         self.spin_preset_start.setValue(500)
         layout.addWidget(self.spin_preset_start, 2, 1)
 
         layout.addWidget(QLabel("Stop λ [nm]"), 3, 0)
         self.spin_preset_stop = QSpinBox()
-        self.spin_preset_stop.setRange(400, 900)
+        self.spin_preset_stop.setRange(450, 700) #filtr ma zakres od 430
         self.spin_preset_stop.setValue(600)
         layout.addWidget(self.spin_preset_stop, 3, 1)
 
@@ -363,11 +365,12 @@ class App(QMainWindow):
         stop = self.preset_end_wavelength
         step = self.preset_step
         mode = self.preset_mode
+        gain = self.spin_gain.value()
 
         print(f"[INFO] Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
 
         def run_thread():
-            self.acquisition.scan_sequence(start, stop, step, mode)
+            self.acquisition.scan_sequence(start, stop, step, mode, 1.0)
             print("[INFO] Wątek skanowania zakończony.")
 
         scan_thread = threading.Thread(target=run_thread)
@@ -398,7 +401,7 @@ class App(QMainWindow):
 
         # 3. Zabezpieczenie przed zbyt dużym krokiem (np. max 30mm)
         if step > 30.0:
-            QMessageBox.warning(self, "Ostrzeżenie", f"Wartość {step} mm jest zbyt duża! Maksymalny bezpieczny krok to 50 mm.")
+            QMessageBox.warning(self, "Ostrzeżenie", f"Wartość {step} mm jest zbyt duża! Maksymalny bezpieczny krok to 30 mm.")
             return
 
         distance = step * direction 
@@ -424,6 +427,11 @@ class App(QMainWindow):
         self.label_pwm_val.setText(f"PWM: {val}")
         # Wysyłamy wartość do dedykowanego sterownika PWM
         self.pwm_controller.set_pwm(val)
+
+    def open_settings(self):
+        # Otwieramy okno ustawień, przekazując referencje do obiektów sprzętowych
+        dlg = AdvancedSettingsDialog(self, self.platform, self.pwm_controller)
+        dlg.exec()
 
     def save_preset(self):
         name = self.edit_preset_name.text()
