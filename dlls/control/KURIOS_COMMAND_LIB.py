@@ -1,5 +1,5 @@
 from ctypes import *
-import os
+
 
 class Kurios:
     KuriosLib = None
@@ -38,7 +38,7 @@ class Kurios:
         Kurios.isLoad = True
 
     def __init__(self):
-        lib_path ="dlls/control/KURIOS_COMMAND_LIB_Win64.dll"
+        lib_path = "./KURIOS_COMMAND_LIB_Win64.dll"
         if not Kurios.isLoad:
             Kurios.load_library(lib_path)
         self.hdl = -1
@@ -368,7 +368,6 @@ class Kurios:
             value: 2 = WIDE mode
                    4 = MEDIUM mode
                    8 = NARROW mode
-
         Returns:
             0: Success; negative number: failed.
         """
