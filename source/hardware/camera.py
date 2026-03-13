@@ -81,13 +81,13 @@ class ImageAcquisitionThread(threading.Thread):
             except queue.Full:
                 pass
             except Exception as error:
-                print(f"Error in acquisition thread: {error}")
+                print(f"[CAM] Error in acquisition thread: {error}")
                 break
 
         if self._is_color:
             self._mono_to_color_processor.dispose()
             self._mono_to_color_sdk.dispose()
-        print("Image acquisition thread stopped.")
+        print("[CAM] Image acquisition thread stopped.")
 
 
 class ThorlabsCamera:
@@ -95,7 +95,7 @@ class ThorlabsCamera:
         self.sdk = TLCameraSDK()
         cameras = self.sdk.discover_available_cameras()
         if not cameras:
-            raise RuntimeError("Brak podłączonych kamer Thorlabs.")
+            raise RuntimeError("[CAM] Brak podłączonych kamer Thorlabs.")
 
         self.camera = self.sdk.open_camera(cameras[0])
         self.camera.exposure_time_us = exposure_us
@@ -110,13 +110,13 @@ class ThorlabsCamera:
         self.live_thread = None
         self.is_live = False
 
-        print(f"Kamera gotowa: {cameras[0]} (ekspozycja: {exposure_us} µs)")
+        print(f"[CAM] Kamera gotowa: {cameras[0]} (ekspozycja: {exposure_us} µs)")
 
     def start_live_view(self):
         if self.is_live:
             return None
 
-        print("Uruchamianie Live View")
+        print("[CAM] Uruchamianie Live View")
         self.camera.frames_per_trigger_zero_for_unlimited = 0
         self.camera.arm(2)
         self.camera.issue_software_trigger()
@@ -130,7 +130,7 @@ class ThorlabsCamera:
         if not self.is_live or not self.live_thread:
             return
 
-        print("Zatrzymywanie Live View")
+        print("[CAM] Zatrzymywanie Live View")
         self.live_thread.stop()
         self.live_thread.join()
 
@@ -151,7 +151,7 @@ class ThorlabsCamera:
             frame = self.camera.get_pending_frame_or_null()
 
         if frame is None:
-            print("nie udalo sie pobrac klatki")
+            print("[CAM] Błąd: nie udalo sie pobrac klatki")
             self.camera.disarm()
             return None
 
@@ -171,11 +171,11 @@ class ThorlabsCamera:
         frame = self.capture_frame()
         if frame is not None:
             cv2.imwrite(filename, frame)
-            print(f"Zapisano: {filename}")
+            print(f"[CAM] Zapisano: {filename}")
 
     def close(self):
         if self.is_live:
             self.stop_live_view()
         self.camera.dispose()
         self.sdk.dispose()
-        print("Kamera zamknieta")
+        print("[CAM] Kamera zamknieta")

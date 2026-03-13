@@ -44,4 +44,4 @@ class LiveViewWidget(QLabel):
         except queue.Empty:
             pass
         except Exception as e:
-            print(f"Błąd wyświetlania: {e}")
+            print(f"[INFO] Błąd wyświetlania (LiveView): {e}")
