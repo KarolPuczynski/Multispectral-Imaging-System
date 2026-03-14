@@ -141,14 +141,13 @@ class ThorlabsCamera:
     def capture_frame(self):
 
         self.camera.frames_per_trigger_zero_for_unlimited = 0
+        
+        self.camera.image_poll_timeout_ms = int(self.camera.exposure_time_us / 1000) + 1000
+        
         self.camera.arm(2)
         self.camera.issue_software_trigger()
 
         frame = self.camera.get_pending_frame_or_null()
-
-        if frame is None:
-            time.sleep(0.1)
-            frame = self.camera.get_pending_frame_or_null()
 
         if frame is None:
             print("[CAM] Błąd: nie udalo sie pobrac klatki")
