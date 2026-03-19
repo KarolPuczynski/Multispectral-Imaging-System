@@ -127,15 +127,16 @@ class App(QMainWindow):
 
         layout.addWidget(QLabel("Ekspozycja [µs]"), 1, 0)
         self.spin_exposure = QSpinBox()
-        self.spin_exposure.setRange(100, 1000000)
+        self.spin_exposure.setRange(100, 59269000) # range of exposure times for CS135MU camera [us]
         self.spin_exposure.setValue(50000)
         self.spin_exposure.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_exposure, 1, 1)
 
         layout.addWidget(QLabel("Gain"), 2, 0)
         self.spin_gain = QDoubleSpinBox()
-        self.spin_gain.setRange(0.0, 100.0) # Zakres zależy od kamery, bezpiecznie 0-100
-        self.spin_gain.setValue(1.0)
+        self.spin_gain.setRange(0.0, 48.0) # range of gain for CS135MU camera
+        self.spin_gain.setSingleStep(0.1) 
+        self.spin_gain.setValue(0.0)
         self.spin_gain.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_gain, 2, 1)
 
@@ -210,6 +211,11 @@ class App(QMainWindow):
         btn_unlock = QPushButton("Unlock ($X)")
         btn_unlock.clicked.connect(self.platform_unlock)
         layout.addWidget(btn_unlock, 4, 1)
+
+        # Wyświetlanie aktualnej pozycji
+        self.label_pos = QLabel("Pozycja: X=0.00, Y=0.00, Z=0.00")
+        self.label_pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_pos, 5, 0, 1, 2)
 
         group.setLayout(layout)
         return group
@@ -289,7 +295,7 @@ class App(QMainWindow):
 
         group.setLayout(layout)
         return group
-
+ 
     # Prawa kolumna GUI: edytor presetów
     def create_right_panel(self):
         group = QGroupBox("Edytor presetów")
@@ -434,6 +440,12 @@ class App(QMainWindow):
 
         if self.platform.validate_and_move(axis, step, direction) == False:
             QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {step * direction} mm w osi {axis} przekracza zakres platformy!")
+        else:
+            self.update_position_label()
+            
+    def update_position_label(self):
+        x, y, z = self.platform.x_state, self.platform.y_state, self.platform.z_state
+        self.label_pos.setText(f"Pozycja: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
 
     # homing platformy 
     def platform_homing(self):
@@ -442,6 +454,7 @@ class App(QMainWindow):
             return
 
         self.platform.homing()
+        self.update_position_label()
 
     # Odblokowanie platformy (domyslnie po wlaczeniu jest zablokowana, i wtedy można tylko ja homingowac)
     def platform_unlock(self):

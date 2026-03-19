@@ -21,7 +21,7 @@ class Acquisition:
                                 "Narrow": 8}
         
         # Ładowanie danych konfiguracyjnych z plików JSON
-        self.exposure_times = self._load_json("source/data/exposure_time.json")
+        self.exposure_times = self._load_json("source/data/exposure_times.json")
         self.tuning_times = self._load_json("source/data/tuning_times.json")
 
     def _load_json(self, path):
@@ -236,11 +236,6 @@ class Acquisition:
                 print(f"[CAM] zapisano tiffa hypercube")
             except Exception as e:
                 print(f"[CAM] jakis error: {e}")
-
-        # Czas powrotu do 450 nm (z 700 nm)
-        delay_back = self.tuning_times.get(bandwidth_name, {}).get("700,450", 200)
-        self.filter.SetWavelength(450)
-        time.sleep(delay_back / 1000.0)
 
         self.is_scanning = False
         print("[INFO] Skanowanie zakończone.")

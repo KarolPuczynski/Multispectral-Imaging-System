@@ -8,7 +8,7 @@ class Platform:
 
         # zakres roboczy platformy w mm
         self.platform_min = (0.0, 0.0, 0.0) # minimalne położenie (x, y, z)
-        self.platform_max = (200.0, 200.0, 100.0) # maksymalne położenie (x, y, z)
+        self.platform_max = (65.0, 60.0, 100.0) # maksymalne położenie (x, y, z)
 
         # polozenie wszystkich osi platformy w mm
         self.x_state = 0.0
@@ -65,7 +65,7 @@ class Platform:
                 return False
             
         elif axis == 'Z':
-            distance = distance / 5 # wspolczynnik skalowanosci os Z (XD)
+            distance = distance / 1 # wspolczynnik skalowanosci os Z (XD)
             new_z = self.z_state + distance
             
             if new_z >= self.platform_min[2] and new_z <= self.platform_max[2]:
