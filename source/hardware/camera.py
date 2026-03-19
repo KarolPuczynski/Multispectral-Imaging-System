@@ -65,7 +65,7 @@ class ImageAcquisitionThread(threading.Thread):
         return Image.fromarray(color_image_data, mode='RGB')
 
     def _get_image(self, frame):
-        scaled_image = frame.image_buffer >> (self._bit_depth - 8)
+        scaled_image = (frame.image_buffer >> (self._bit_depth - 8)).astype(np.uint8)
         return Image.fromarray(scaled_image)
 
     def run(self):
@@ -141,14 +141,13 @@ class ThorlabsCamera:
     def capture_frame(self):
 
         self.camera.frames_per_trigger_zero_for_unlimited = 0
+        
+        self.camera.image_poll_timeout_ms = int(self.camera.exposure_time_us / 1000) + 1000
+        
         self.camera.arm(2)
         self.camera.issue_software_trigger()
 
         frame = self.camera.get_pending_frame_or_null()
-
-        if frame is None:
-            time.sleep(0.1)
-            frame = self.camera.get_pending_frame_or_null()
 
         if frame is None:
             print("[CAM] Błąd: nie udalo sie pobrac klatki")
@@ -158,14 +157,9 @@ class ThorlabsCamera:
         img = np.copy(frame.image_buffer)
 
         numpy_shaped_image = img.reshape(self.camera.image_height_pixels, self.camera.image_width_pixels)
-        nd_image_array = np.full((self.camera.image_height_pixels, self.camera.image_width_pixels, 3), 0,
-                                 dtype=np.uint8)
-        nd_image_array[:, :, 0] = numpy_shaped_image
-        nd_image_array[:, :, 1] = numpy_shaped_image
-        nd_image_array[:, :, 2] = numpy_shaped_image
 
         self.camera.disarm()
-        return nd_image_array
+        return numpy_shaped_image
 
     def save_frame(self, filename):
         frame = self.capture_frame()

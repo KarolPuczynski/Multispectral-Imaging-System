@@ -25,7 +25,7 @@ $31=0      ; Min spindle speed, RPM
 $32=0      ; Laser mode, (0=Off, 1=On)
 $100=1600.000; X steps/mm
 $101=1600.000; Y steps/mm
-$102=200.000; Z steps/mm
+$102=40.000; Z steps/mm
 $110=500.000; X Max rate, mm/min
 $111=500.000; Y Max rate, mm/min
 $112=500.000; Z Max rate, mm/min

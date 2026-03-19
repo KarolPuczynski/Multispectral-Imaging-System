@@ -1,8 +1,9 @@
 import sys
+import os
 import threading
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
                              QGroupBox, QPushButton, QLabel, QLineEdit, QComboBox, 
-                             QSpinBox, QDoubleSpinBox, QSlider, QMessageBox, QFrame)
+                             QSpinBox, QDoubleSpinBox, QSlider, QMessageBox, QFrame, QFileDialog)
 from PyQt6.QtCore import Qt
 from core.acquisition import Acquisition
 from core.preset_handling import PresetManager
@@ -19,6 +20,8 @@ class App(QMainWindow):
 
         # 1. Inicjalizacja potrzebnych obiektow klas, parametrow (acquisition, presets, platform bandwidth_modes)
         self.init_logic_modules()
+
+        self.save_path = os.getcwd()
 
         # 2. Inicjalizacja UI 
         self.init_ui()
@@ -37,7 +40,6 @@ class App(QMainWindow):
         self.acquisition = Acquisition()
         self.presets = PresetManager("presets.json")
         self.platform = Platform()
-        # Tutaj ustaw odpowiedni port COM dla Arduino od świateł (inny niż dla platformy!)
         self.pwm_controller = LedController(port="COM6")
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
 
@@ -100,14 +102,14 @@ class App(QMainWindow):
         self.pwm_status_label.setStyleSheet("color: red")
         layout.addWidget(self.pwm_status_label)
 
-        # Manualne sterowanie
         layout.addWidget(self._create_manual_controls())
 
-        # Oś XYZ i PWM
+        layout.addWidget(self._create_save_path_controls())
+
         layout.addWidget(self._create_platform_controls())
         layout.addWidget(self._create_pwm_controls())
 
-        layout.addStretch() # Wypchnięcie elementów do góry
+        layout.addStretch() 
         group_box.setLayout(layout)
         return group_box
 
@@ -125,22 +127,39 @@ class App(QMainWindow):
 
         layout.addWidget(QLabel("Ekspozycja [µs]"), 1, 0)
         self.spin_exposure = QSpinBox()
-        self.spin_exposure.setRange(100, 1000000)
+        self.spin_exposure.setRange(100, 59269000) # range of exposure times for CS135MU camera [us]
         self.spin_exposure.setValue(50000)
         self.spin_exposure.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_exposure, 1, 1)
 
         layout.addWidget(QLabel("Gain"), 2, 0)
         self.spin_gain = QDoubleSpinBox()
-        self.spin_gain.setRange(0.0, 100.0) # Zakres zależy od kamery, bezpiecznie 0-100
-        self.spin_gain.setValue(1.0)
+        self.spin_gain.setRange(0.0, 48.0) # range of gain for CS135MU camera
+        self.spin_gain.setSingleStep(0.1) 
+        self.spin_gain.setValue(0.0)
         self.spin_gain.valueChanged.connect(self.refresh_live_parameters)
         layout.addWidget(self.spin_gain, 2, 1)
 
         self.combo_bandwidth = QComboBox()
         self.combo_bandwidth.addItems(list(self.bandwidth_modes.keys()))
+        self.combo_bandwidth.currentTextChanged.connect(self.refresh_live_parameters)
         layout.addWidget(QLabel("Tryb pasma"), 3, 0)
         layout.addWidget(self.combo_bandwidth, 3, 1)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_save_path_controls(self):
+        group = QGroupBox("Ścieżka zapisu")
+        layout = QGridLayout()
+
+        self.edit_save_path = QLineEdit(self.save_path)
+        self.edit_save_path.setReadOnly(True)
+        layout.addWidget(self.edit_save_path, 0, 0)
+
+        btn_select_path = QPushButton("Wybierz...")
+        btn_select_path.clicked.connect(self.select_save_directory)
+        layout.addWidget(btn_select_path, 0, 1)
 
         group.setLayout(layout)
         return group
@@ -192,6 +211,11 @@ class App(QMainWindow):
         btn_unlock = QPushButton("Unlock ($X)")
         btn_unlock.clicked.connect(self.platform_unlock)
         layout.addWidget(btn_unlock, 4, 1)
+
+        # Wyświetlanie aktualnej pozycji
+        self.label_pos = QLabel("Pozycja: X=0.00, Y=0.00, Z=0.00")
+        self.label_pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_pos, 5, 0, 1, 2)
 
         group.setLayout(layout)
         return group
@@ -271,7 +295,7 @@ class App(QMainWindow):
 
         group.setLayout(layout)
         return group
-
+ 
     # Prawa kolumna GUI: edytor presetów
     def create_right_panel(self):
         group = QGroupBox("Edytor presetów")
@@ -329,7 +353,6 @@ class App(QMainWindow):
 
     # Łączenie się z kamera i filtrem przestrajalnym
     def connect(self):
-        # 1. Próba połączenia z głównym sprzętem (Kamera + Filtr)
         success = self.acquisition.connect_hardware()
         if success:
             self.cam_status_label.setText("Kamera: POŁĄCZONA")
@@ -338,25 +361,20 @@ class App(QMainWindow):
             self.kur_status_label.setText("KURIOS: POŁĄCZONY")
             self.kur_status_label.setStyleSheet("color: green")
         
-        # 2. Próba połączenia z platformą (GRBL)
         self.platform.connect()
         if self.platform.grbl.ser and self.platform.grbl.ser.is_open:
             self.platform_status_label.setText("Platforma: POŁĄCZONA")
             self.platform_status_label.setStyleSheet("color: green")
 
-        # 3. Próba połączenia z oświetleniem (PWM) - niezależnie od kamery
-        # Dzięki temu możesz sterować światłem nawet bez kamery
         self.pwm_controller.connect()
         if self.pwm_controller.connected:
             self.pwm_status_label.setText("PWM: POŁĄCZONY")
             self.pwm_status_label.setStyleSheet("color: green")
         
-        # Wyślij aktualną wartość suwaka od razu po połączeniu
         self.adjust_lighting()
 
     # przechwytywanie zdjecia z manulnymi parametrami
     def capture_image(self):
-        # Zabezpieczenie: Zatrzymaj Live View, jeśli działa, zanim przejmiesz kontrolę nad kamerą
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
             print("[INFO] Zatrzymywanie Live View przed wykonaniem zdjęcia...")
             self.stop_live_view_action()
@@ -367,27 +385,21 @@ class App(QMainWindow):
         bandwidth_name = self.combo_bandwidth.currentText()
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
 
-        self.acquisition.capture_image(wavelength, exposure_time, gain, bandwidth_name, bandwidth_code)
+        self.acquisition.capture_image(self.save_path, wavelength, exposure_time, gain, bandwidth_name, bandwidth_code)
 
-    # Funkcja aktualizujaca parametry sprzetu na biezaco (dla Live View)
     def refresh_live_parameters(self):
-        # Pobieramy wartosci z GUI
         wavelength = self.spin_wavelength.value()
         exposure = self.spin_exposure.value()
         gain = self.spin_gain.value()
         bandwidth_name = self.combo_bandwidth.currentText()
 
-        # Wysylamy do acquisition (tylko jesli sprzet jest polaczony, metoda w acquisition to sprawdza)
-        # Sprawdzamy czy Live View jest aktywne lub czy po prostu chcemy ustawic sprzet
         self.acquisition.set_hardware_params(wavelength, exposure, bandwidth_name, gain)
 
-    # skanowanie zakresu z paramsami z presetow
     def start_scan(self):
         if not self.preset_start_wavelength:
             QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu!")
             return
             
-        # Zabezpieczenie: Zatrzymaj Live View przed skanowaniem
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
             print("[INFO] Zatrzymywanie Live View przed rozpoczęciem skanowania...")
             self.stop_live_view_action()
@@ -401,47 +413,39 @@ class App(QMainWindow):
         print(f"[INFO] Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
 
         def run_thread():
-            self.acquisition.scan_sequence(start, stop, step, mode, 1.0)
+            self.acquisition.scan_sequence(self.save_path, start, stop, step, mode, gain)
             print("[INFO] Wątek skanowania zakończony.")
 
         scan_thread = threading.Thread(target=run_thread)
         scan_thread.daemon = True
         scan_thread.start()
 
-    # sprawdzamy czy uzytkownik nie wpisal za duzej wartosci kroku 
-    # trzeba i tak jakos zabezpieczyc przed wyslaniem wartosci jak 
-    # bedziemy bardzo blisko krawedzi zakresu
+    def select_save_directory(self):
+        directory = QFileDialog.getExistingDirectory(self, "Wybierz folder do zapisu", self.save_path)
+        if directory:
+            self.save_path = directory
+            self.edit_save_path.setText(self.save_path)
+            print(f"[INFO] Ustawiono nową ścieżkę zapisu: {self.save_path}")
+
     def validate_and_move(self, axis, direction):
-        # 0. Sprawdzenie czy platforma jest połączona
         if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
             QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
             return
 
-        # 1. Sprawdzenie czy wykonano Homing/Unlock
         if not self.platform.is_ready:
             QMessageBox.warning(self, "Blokada Platformy", "Platforma jest zablokowana (stan Alarm).\nProszę wykonać Homing ($H) lub Unlock ($X), aby umożliwić ruch.")
             return
 
         step = self.spin_platform_step.value()
 
-        # 2. Sprawdzenie czy wartość jest dodatnia
-        if step <= 0:
-            QMessageBox.warning(self, "Ostrzeżenie", "Krok musi być wartością dodatnią.")
-            return
-
-        # 3. Zabezpieczenie przed zbyt dużym krokiem (np. max 30mm)
-        if step > 30.0:
-            QMessageBox.warning(self, "Ostrzeżenie", f"Wartość {step} mm jest zbyt duża! Maksymalny bezpieczny krok to 30 mm.")
-            return
-
-        distance = step * direction 
-        if axis == 'Z': 
-            distance = distance / 5 # wspolczynnik skalowanosci os Z (XD)
-
-        if self.platform.validate_platform_movement(axis, distance):
-            self.platform.move_single_axis(f'G91 {axis}{distance} F500')
-        else:
+        if self.platform.validate_and_move(axis, step, direction) == False:
             QMessageBox.warning(self, "Ostrzeżenie", f"Ruch o {step * direction} mm w osi {axis} przekracza zakres platformy!")
+        else:
+            self.update_position_label()
+            
+    def update_position_label(self):
+        x, y, z = self.platform.x_state, self.platform.y_state, self.platform.z_state
+        self.label_pos.setText(f"Pozycja: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
 
     # homing platformy 
     def platform_homing(self):
@@ -450,6 +454,7 @@ class App(QMainWindow):
             return
 
         self.platform.homing()
+        self.update_position_label()
 
     # Odblokowanie platformy (domyslnie po wlaczeniu jest zablokowana, i wtedy można tylko ja homingowac)
     def platform_unlock(self):
@@ -463,35 +468,27 @@ class App(QMainWindow):
     def adjust_lighting(self):
         val = self.pwm_slider.value()
         self.label_pwm_val.setText(f"PWM: {val}")
-        # Wysyłamy wartość do dedykowanego sterownika PWM
         self.pwm_controller.set_pwm(val)
 
     def open_settings(self):
-        # Otwieramy okno ustawień, przekazując referencje do obiektów sprzętowych
         dlg = AdvancedSettingsDialog(self, self.platform, self.pwm_controller)
         dlg.exec()
 
     def update_preset_constraints(self):
-        # Pobieramy wybrany krok
         step_text = self.combo_preset_step.currentText()
         if not step_text:
             return
         step = int(step_text)
 
-        # Ustalamy zakresy zgodnie z wymaganiami
-        # 10, 50 -> max 700
-        # 20, 30, 40 -> max 690 (bo startujemy od 450)
         min_val = 450
         if step in [20, 30, 40]:
             max_val = 690
         else:
             max_val = 700
 
-        # Generujemy listę dostępnych wartości dla wybranego kroku
         valid_values = list(range(min_val, max_val + 1, step))
         valid_values_str = [str(x) for x in valid_values]
 
-        # Aktualizacja listy Start
         current_start = self.combo_preset_start.currentText()
         self.combo_preset_start.blockSignals(True)
         self.combo_preset_start.clear()
@@ -499,7 +496,7 @@ class App(QMainWindow):
         if current_start in valid_values_str:
             self.combo_preset_start.setCurrentText(current_start)
         else:
-            self.combo_preset_start.setCurrentIndex(0) # Domyślnie pierwsza wartość (min)
+            self.combo_preset_start.setCurrentIndex(0) 
         self.combo_preset_start.blockSignals(False)
 
         # Aktualizacja listy Stop
@@ -510,7 +507,7 @@ class App(QMainWindow):
         if current_stop in valid_values_str:
             self.combo_preset_stop.setCurrentText(current_stop)
         else:
-            self.combo_preset_stop.setCurrentIndex(len(valid_values_str) - 1) # Domyślnie ostatnia wartość (max)
+            self.combo_preset_stop.setCurrentIndex(len(valid_values_str) - 1) 
         self.combo_preset_stop.blockSignals(False)
 
     def save_preset(self):
@@ -573,12 +570,10 @@ class App(QMainWindow):
                 self.preset_start_wavelength = None
 
     def start_live_view_action(self):
-        # Sprawdzamy czy hardware jest podłączony
         if not self.acquisition.camera_connected:
             print("[INFO] Najpierw połącz kamerę!")
             return
 
-        # Przed startem ustawiamy parametry z panelu manualnego
         self.refresh_live_parameters()
         
         queue = self.acquisition.start_live_view()

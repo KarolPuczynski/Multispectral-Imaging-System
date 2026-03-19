@@ -2,6 +2,7 @@ import time
 import json
 import os
 from hardware.camera import ThorlabsCamera
+from PIL import Image
 from hardware.KURIOS_COMMAND_LIB import Kurios
 
 class Acquisition:
@@ -20,7 +21,7 @@ class Acquisition:
                                 "Narrow": 8}
         
         # Ładowanie danych konfiguracyjnych z plików JSON
-        self.exposure_times = self._load_json("source/data/exposure_time.json")
+        self.exposure_times = self._load_json("source/data/exposure_times.json")
         self.tuning_times = self._load_json("source/data/tuning_times.json")
 
     def _load_json(self, path):
@@ -78,7 +79,7 @@ class Acquisition:
 
         return True
 
-    def capture_image(self, wavelength, exposure, gain, bandwidth_name, bandwidth_code):
+    def capture_image(self, save_path, wavelength, exposure, gain, bandwidth_name, bandwidth_code):
         if not self.camera or not self.filter:
             print("[INFO] Najpierw połącz urządzenia!")
             return
@@ -94,20 +95,21 @@ class Acquisition:
         self.filter.SetBandwidthMode(bandwidth_code)
 
         # kamera
-        self.camera.exposure_time_us = exposure
+        self.camera.camera.exposure_time_us = exposure
         try:
-            if hasattr(self.camera, "gain"):
-                    self.camera.gain = gain
-            elif hasattr(self.camera, "analog_gain"):
-                    self.camera.analog_gain = gain
+            if hasattr(self.camera.camera, "gain"):
+                    self.camera.camera.gain = gain
+            elif hasattr(self.camera.camera, "analog_gain"):
+                    self.camera.camera.analog_gain = gain
         except Exception as e:
             print(f"[CAM] Gain nie mógł zostać ustawiony: {e}")
 
         time.sleep(0.3)
 
-        filename = f"manual_{wavelength}nm_{bandwidth_name}.png"
-        self.camera.save_frame(filename)
-        print(f"[CAM] Zapisano zdjęcie: {filename}")
+        filename = f"manual_{wavelength}nm_{bandwidth_name}.tiff"
+        full_path = os.path.join(save_path, filename)
+        self.camera.save_frame(full_path)
+        print(f"[CAM] Zapisano zdjęcie: {full_path}")
 
     def set_hardware_params(self, wavelength, exposure, bandwidth_name, gain):
         """Aktualizuje parametry sprzetu (Live View) bez zapisu zdjecia."""
@@ -117,17 +119,14 @@ class Acquisition:
             self.filter.SetBandwidthMode(bandwidth_code)
 
         if self.camera and self.camera_connected:
-            # Ustawiamy ekspozycje kamery
-            self.camera.exposure_time_us = exposure
-            # W SDK zmiana exposure_time_us zwykle aplikuje sie natychmiastowo
+            self.camera.camera.exposure_time_us = exposure
             try:
-                if hasattr(self.camera, "gain"):
-                    self.camera.gain = gain
-                elif hasattr(self.camera, "analog_gain"):
-                    self.camera.analog_gain = gain
+                if hasattr(self.camera.camera, "gain"):
+                    self.camera.camera.gain = gain
+                elif hasattr(self.camera.camera, "analog_gain"):
+                    self.camera.camera.analog_gain = gain
             except Exception:
                 pass
-            # dla kolejnych klatek
 
     def start_live_view(self):
         if self.camera and self.camera_connected:
@@ -137,7 +136,7 @@ class Acquisition:
         if self.camera and self.camera_connected:
             self.camera.stop_live_view()
 
-    def scan_sequence(self, starting_wavelength, ending_wavelength, step, mode, gain):
+    def scan_sequence(self, save_path, starting_wavelength, ending_wavelength, step, mode, gain):
 
         if not self.camera or not self.filter:
             print("[INFO] Najpierw połącz urządzenia!")
@@ -162,42 +161,81 @@ class Acquisition:
 
         # Ustawiamy Gain przed rozpoczęciem pętli
         try:
-            if hasattr(self.camera, "gain"):
-                self.camera.gain = gain
-            elif hasattr(self.camera, "analog_gain"):
-                self.camera.analog_gain = gain
+            if hasattr(self.camera.camera, "gain"):
+                self.camera.camera.gain = gain
+            elif hasattr(self.camera.camera, "analog_gain"):
+                self.camera.camera.analog_gain = gain
         except Exception as e:
             print(f"[CAM] Gain nie mógł zostać ustawiony dla skanowania: {e}")
 
         print(f"[INFO] Rozpoczynam skanowanie: {starting_wavelength}–{ending_wavelength} nm, step={step}, mode={bandwidth_name}")
 
         prev_wavelength = wavelengths[0]
+        
+        captured_data = []
 
         for i, wavelength in enumerate(wavelengths):
             self.filter.SetWavelength(wavelength)
 
             if i > 0:
-                # Pobieramy czas przestrojenia z JSON (klucz w formacie "start,end")
+                # pobieramy czas przestrojenia z tuning_times.JSON 
                 key = f"{prev_wavelength},{wavelength}"
                 delay_ms = self.tuning_times.get(bandwidth_name, {}).get(key, 200)
                 time.sleep(delay_ms / 1000.0)
             else:
                 time.sleep(0.2)
 
-            # Pobieramy czas ekspozycji z JSON (klucz to string)
             exp = self.exposure_times.get(bandwidth_name, {}).get(str(wavelength), 10000)
-            self.camera.exposure_time_us = exp
+            self.camera.camera.exposure_time_us = exp
 
-            filename = f"scan_{i+1}_{wavelength}nm_{bandwidth_name}.png"
-            self.camera.save_frame(filename)
+            frame = self.camera.capture_frame()
+            if frame is not None:
+                frame_info = {
+                    "frame_data": frame,
+                    "wavelength": wavelength,
+                    "exposure_us": exp
+                }
+                captured_data.append(frame_info)
+                print(f"[CAM] Przechwycono klatkę {i+1}/{len(wavelengths)} dla {wavelength}nm (ekspozycja: {exp} µs)")
+            else:
+                print(f"[CAM] Błąd: Nie udało się przechwycić klatki dla {wavelength}nm")
 
-            print(f"[CAM] Zapisano {filename} (ekspozycja: {exp} µs)")
             prev_wavelength = wavelength
 
-        # Czas powrotu do 450 nm (z 700 nm)
-        delay_back = self.tuning_times.get(bandwidth_name, {}).get("700,450", 200)
-        self.filter.SetWavelength(450)
-        time.sleep(delay_back / 1000.0)
+        if captured_data:
+            filename = f"scan_{starting_wavelength}-{ending_wavelength}nm_step{step}_{bandwidth_name}.tiff"
+            full_path = os.path.join(save_path, filename)
+
+            frame_metadata_list = [
+                {"frame_index": i, "wavelength_nm": item["wavelength"], "exposure_us": item["exposure_us"]}
+                for i, item in enumerate(captured_data)
+            ]
+            
+            full_metadata = {
+                "software": "Multispectral Imaging System",
+                "scan_parameters": {
+                    "start_wavelength_nm": starting_wavelength,
+                    "end_wavelength_nm": ending_wavelength,
+                    "step_nm": step,
+                    "bandwidth_mode": bandwidth_name,
+                    "gain": gain
+                },
+                "frames": frame_metadata_list
+            }
+            metadata_json_string = json.dumps(full_metadata, indent=4)
+
+            pil_images = [Image.fromarray(item["frame_data"]) for item in captured_data]
+
+            try:
+                pil_images[0].save(
+                    full_path,
+                    save_all=True,
+                    append_images=pil_images[1:],
+                    description=metadata_json_string
+                )
+                print(f"[CAM] zapisano tiffa hypercube")
+            except Exception as e:
+                print(f"[CAM] jakis error: {e}")
 
         self.is_scanning = False
         print("[INFO] Skanowanie zakończone.")
