@@ -34,7 +34,6 @@ def configure_path():
     os.environ['PATH'] = absolute_path_to_dlls + os.pathsep + os.environ['PATH']
 
     try:
-        # Python 3.8 introduces a new method to specify dll directory
         os.add_dll_directory(absolute_path_to_dlls)
     except AttributeError:
         pass

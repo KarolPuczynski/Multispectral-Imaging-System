@@ -38,7 +38,7 @@ class Kurios:
         Kurios.isLoad = True
 
     def __init__(self):
-        lib_path ="dlls/control/KURIOS_COMMAND_LIB_Win64.dll"
+        lib_path = "dlls/control/KURIOS_COMMAND_LIB_Win64.dll"
         if not Kurios.isLoad:
             Kurios.load_library(lib_path)
         self.hdl = -1
