@@ -10,7 +10,7 @@ class Platform:
 
         # zakres roboczy platformy w mm
         self.platform_min = (0.0, 0.0, 0.0) # minimalne położenie (x, y, z)
-        self.platform_max = (65.0, 60.0, 100.0) # maksymalne położenie (x, y, z)
+        self.platform_max = (80.0, 45.0, 100.0) # maksymalne położenie (x, y, z)
 
         # polozenie wszystkich osi platformy w mm
         self.x_state = 0.0
@@ -19,7 +19,7 @@ class Platform:
 
         # pozycja xy platformy (w mm), ktora podjezdza centralnie pod kamerke
         # TODO trzeba dokladnei to wymierzyc
-        self.platform_center = (30.0, 30.0)
+        self.platform_center = (40.0, 22.5)
 
     def connect(self):
         self.grbl.connect()
@@ -51,7 +51,7 @@ class Platform:
             
             if new_x >= self.platform_min[0] and new_x <= self.platform_max[0]:
                 self.x_state = new_x
-                self.move_single_axis(f'G91 {axis}{distance} F500')
+                self.move_single_axis(f'G91 {axis}{distance:.3f} F500')
                 return True
             else:
                 return False
@@ -61,7 +61,7 @@ class Platform:
 
             if new_y >= self.platform_min[1] and new_y <= self.platform_max[1]:
                 self.y_state = new_y
-                self.move_single_axis(f'G91 {axis}{distance} F500')
+                self.move_single_axis(f'G91 {axis}{distance:.3f} F500')
                 return True
             else:
                 return False
@@ -72,7 +72,7 @@ class Platform:
             
             if new_z >= self.platform_min[2] and new_z <= self.platform_max[2]:
                 self.z_state = new_z
-                self.move_single_axis(f'G91 {axis}{distance} F500')
+                self.move_single_axis(f'G91 {axis}{distance:.3f} F500')
                 return True
             else:
                 return False
@@ -84,11 +84,17 @@ class Platform:
         y_distance_to_center = self.platform_center[1] - self.y_state
 
         if x_distance_to_center != 0 or y_distance_to_center != 0:
-            self.move_single_axis(f'G91 X{x_distance_to_center} Y{y_distance_to_center} F500')
+            self.move_single_axis(f'G91 X{x_distance_to_center:.3f} Y{y_distance_to_center:.3f} F500')
             self.x_state = self.platform_center[0]
             self.y_state = self.platform_center[1]
 
     def move_to_position_blocking(self, target_x, target_y):
+        # Zabezpieczenie przed kolizja
+        if target_x < self.platform_min[0] or target_x > self.platform_max[0] or \
+                target_y < self.platform_min[1] or target_y > self.platform_max[1]:
+            print(f"[BŁĄD] Cel X:{target_x:.2f}, Y:{target_y:.2f} poza zakresem! RUCH ZABLOKOWANY.")
+            return False
+
         # Obliczanie fizycznego dystansu do pokonania
         dx = target_x - self.x_state
         dy = target_y - self.y_state
@@ -97,22 +103,17 @@ class Platform:
         if distance == 0:
             return True
 
-        # Przejście w tryb absolutny (G90), wysłanie ruchu i powrót do relatywnego (G91)
+        # 2. KOMUNIKACJA SYNCHRONICZNA 
         feedrate = 500
-        self.move_single_axis(f'G90')
-        self.move_single_axis(f'G1 X{target_x} Y{target_y} F{feedrate}')
-        self.move_single_axis(f'G91')
+        self.grbl.send_line_blocking(f'G91 G1 X{dx:.3f} Y{dy:.3f} F{feedrate}')
 
-        # Aktualizacja wewnętrznego stanu w Pythonie
         self.x_state = target_x
         self.y_state = target_y
 
-        # Obliczanie czasu i oczekiwanie na ustabilizowanie
-        # Prędkość to 500 mm/min = ok. 8.33 mm/sek
+        # 3. CZAS OCZEKIWANIA I STABILIZACJI
         move_time_seconds = distance / (feedrate / 60.0)
 
-        # 0.5s marginesu na wytracenie pędu i wibracji stolika
-        time.sleep(move_time_seconds + 0.5)
+        time.sleep(move_time_seconds + 1.5)
 
         return True
         

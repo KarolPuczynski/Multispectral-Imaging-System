@@ -7,6 +7,42 @@ from PIL import Image
 from hardware.KURIOS_COMMAND_LIB import Kurios
 from core.stitching import MosaicStitcher
 
+import numpy as np
+
+SIMULATION_MODE = True
+
+class DummyKurios:
+    def SetOutputMode(self, mode): pass
+    def SetBandwidthMode(self, mode): pass
+    def SetWavelength(self, wl): pass
+    def close(self): pass
+
+class DummyCameraParams:
+    def __init__(self):
+        self.exposure_time_us = 10000
+        self.gain = 1
+
+class DummyCamera:
+    def __init__(self, exposure_us=10000):
+        self.camera = DummyCameraParams()
+        self.camera.exposure_time_us = exposure_us
+        self.is_live = False
+
+    def capture_frame(self):
+        time.sleep(self.camera.exposure_time_us / 1_000_000.0)
+        dummy_img = np.random.randint(10000, 50000, (1000, 1000), dtype=np.uint16)
+        return dummy_img
+
+    def start_live_view(self):
+        self.is_live = True
+        return None
+
+    def stop_live_view(self):
+        self.is_live = False
+
+    def close(self):
+        pass
+
 class Acquisition:
     def __init__(self):
         self.is_scanning = False
@@ -39,11 +75,22 @@ class Acquisition:
             return {}
 
     def connect_hardware(self):
-        print("[INFO] Connecting hardware...")
+        print("[INFO] Łączenie ze sprzętem...")
 
         if self.is_scanning:
             print("[INFO] Nie można łączyć urządzeń podczas skanowania!")
             return False
+
+        #  BLOK SYMULACJI
+        if SIMULATION_MODE:
+            print("[SYMULACJA] Uruchamianie w trybie wirtualnym (bez prawdziwego sprzętu)!")
+            self.camera = DummyCamera(self.manual_exposure)
+            self.camera_connected = True
+
+            self.filter = DummyKurios()
+            self.kurios_connected = True
+
+            return True
 
         try:
             # 1. Łączenie z Kamerą
@@ -53,18 +100,13 @@ class Acquisition:
 
             # 2. Łączenie z Filtrem KURIOS
             self.filter = Kurios()
-
-            # Musimy znaleźć urządzenia podłączone do komputera
             devices = self.filter.list_devices()
             if not devices:
                 print("[CAM] Błąd: Nie znaleziono urządzenia KURIOS na USB.")
                 self.kurios_connected = False
                 return False
 
-            # bierzemy pierwsze znalezione urządzenie
             serial_port = devices[0][0]
-
-            # otwieramy połączenie
             status = self.filter.open(serial_port, 115200, 1)
 
             if status >= 0:
@@ -172,7 +214,7 @@ class Acquisition:
         return grid_points
 
     def scan_sequence(self, platform, save_path, starting_wavelength, ending_wavelength, step, mode, gain,
-                             sample_w, sample_h, fov_x, fov_y, overlap):
+                      sample_w, sample_h, fov_x, fov_y, overlap):
         if not self.camera or not self.filter:
             print("[INFO] Najpierw połącz urządzenia optyczne!")
             return
@@ -225,8 +267,11 @@ class Acquisition:
             print(
                 f"\n[SCAN] --- Kafelek {tile_idx + 1}/{len(grid_points)} --- (Ruch do X={target_x:.2f}, Y={target_y:.2f})")
 
-            # Ruch fizyczny platformy
-            platform.move_to_position_blocking(target_x, target_y)
+            success = platform.move_to_position_blocking(target_x, target_y)
+
+            if not success:
+                print(f"[SCAN] Pomijam kafelek {tile_idx + 1}, aby uniknąć kolizji z ramą maszyny.")
+                continue 
 
             captured_data = []
             prev_wavelength = wavelengths[0]
@@ -273,25 +318,26 @@ class Acquisition:
                 "tiles": metadata_tiles
             }, f, indent=4)
 
-            # Powrót na środek po zakończeniu skanowania
-            print("\n[INFO] Skanowanie fizyczne zakończone. Wracam na środek...")
-            platform.move_to_position_blocking(center_x, center_y)
 
-            # Automatyczne zszywanie mozaiki
-            print("[INFO] Rozpoczynam automatyczne zszywanie kafelków do hiperkostki...")
-            try:
-                stitcher = MosaicStitcher(mosaic_dir)
-                success = stitcher.stitch("finalna_hiperkostka_mozaika.tiff")
+        # Powrót na środek po zakończeniu skanowania
+        print("\n[INFO] Skanowanie fizyczne zakończone. Wracam na środek...")
+        platform.move_to_position_blocking(center_x, center_y)
 
-                if success:
-                    print(f"[INFO] SUKCES! Zszyta hiperkostka znajduje się w folderze: {mosaic_dir}")
-                else:
-                    print("[INFO] BŁĄD: Proces zszywania zakończył się niepowodzeniem.")
-            except Exception as e:
-                print(f"[INFO] KRYTYCZNY BŁĄD ZSZYWANIA: {e}")
+        # Automatyczne zszywanie mozaiki
+        print("[INFO] Rozpoczynam automatyczne zszywanie kafelków do hiperkostki...")
+        try:
+            stitcher = MosaicStitcher(mosaic_dir)
+            stitch_success = stitcher.stitch("finalna_hiperkostka_mozaika.tiff")
 
-            self.is_scanning = False
-            print("[INFO] Wszystkie zadania gotowe. Możesz używać systemu.")
+            if stitch_success:
+                print(f"[INFO] SUKCES! Zszyta hiperkostka znajduje się w folderze: {mosaic_dir}")
+            else:
+                print("[INFO] BŁĄD: Proces zszywania zakończył się niepowodzeniem.")
+        except Exception as e:
+            print(f"[INFO] KRYTYCZNY BŁĄD ZSZYWANIA: {e}")
+
+        self.is_scanning = False
+        print("[INFO] Wszystkie zadania gotowe. Możesz używać systemu.")
 
     def cleanup(self):
         if self.camera is not None:
