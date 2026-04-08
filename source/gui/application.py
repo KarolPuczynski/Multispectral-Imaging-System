@@ -39,6 +39,7 @@ class App(QMainWindow):
     def init_logic_modules(self):
         self.acquisition = Acquisition()
         self.presets = PresetManager("presets.json")
+        self.oculars = PresetManager("oculars.json")
         self.platform = Platform()
         self.pwm_controller = LedController(port="COM6")
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
@@ -171,7 +172,8 @@ class App(QMainWindow):
         # Pole tekstowe na krok
         layout.addWidget(QLabel("Krok [mm]:"), 0, 0)
         self.spin_platform_step = QDoubleSpinBox()
-        self.spin_platform_step.setRange(0.01, 30.0)
+        self.spin_platform_step.setRange(0.001, 30.0)
+        self.spin_platform_step.setDecimals(3)
         self.spin_platform_step.setValue(1.0)
         self.spin_platform_step.setSingleStep(0.1)
         layout.addWidget(self.spin_platform_step, 0, 1)
@@ -212,10 +214,15 @@ class App(QMainWindow):
         btn_unlock.clicked.connect(self.platform_unlock)
         layout.addWidget(btn_unlock, 4, 1)
 
+        # Przycisk wyjazdu na środek
+        btn_center = QPushButton("Center")
+        btn_center.clicked.connect(self.platform_move_to_center)
+        layout.addWidget(btn_center, 5, 0, 1, 2)
+
         # Wyświetlanie aktualnej pozycji
         self.label_pos = QLabel("Pozycja: X=0.00, Y=0.00, Z=0.00")
         self.label_pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.label_pos, 5, 0, 1, 2)
+        layout.addWidget(self.label_pos, 6, 0, 1, 2)
 
         group.setLayout(layout)
         return group
@@ -271,6 +278,7 @@ class App(QMainWindow):
         preset_layout.addWidget(QLabel("Wybierz preset:"))
         
         self.combo_select_preset = QComboBox()
+        self.combo_select_preset.addItem("Wybierz preset")
         self.combo_select_preset.addItems(list(self.presets.get_preset_names()))
         self.combo_select_preset.currentTextChanged.connect(self.on_preset_selected)
         preset_layout.addWidget(self.combo_select_preset)
@@ -293,59 +301,122 @@ class App(QMainWindow):
         self.label_geo = QLabel("Geometry: ---")
         layout.addWidget(self.label_geo)
 
+        #Wybór okularu
+        ocular_layout = QHBoxLayout()
+        ocular_layout.addWidget(QLabel("Wybierz obiektyw:"))
+
+        self.combo_select_ocular = QComboBox()
+        self.combo_select_ocular.addItem("Wybierz obiektyw")
+        self.combo_select_ocular.addItems(list(self.oculars.get_preset_names()))
+        self.combo_select_ocular.currentTextChanged.connect(self.on_ocular_selected)
+        ocular_layout.addWidget(self.combo_select_ocular)
+
+        btn_delete_ocular = QPushButton("Usuń")
+        btn_delete_ocular.clicked.connect(self.delete_ocular_action)
+        ocular_layout.addWidget(btn_delete_ocular)
+
+        layout.addLayout(ocular_layout)
+
+        # Informacje o obiektywie
+        self.label_ocular_fov = QLabel("FOV: --- x --- mm")
+        layout.addWidget(self.label_ocular_fov)
+
+        self.label_ocular_overlap = QLabel("Zakładka: --- %")
+        layout.addWidget(self.label_ocular_overlap)
+
         group.setLayout(layout)
         return group
+
+
  
     # Prawa kolumna GUI: edytor presetów
     def create_right_panel(self):
-        group = QGroupBox("Edytor presetów")
-        layout = QGridLayout()
+        group = QWidget()
+        main_layout = QVBoxLayout(group)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        layout.addWidget(QLabel("Nazwa presetu"), 0, 0)
+        # --- GRUPA 1: Edytor presetów skanowania ---
+        group_scan = QGroupBox("Edytor presetów skanowania")
+        scan_layout = QGridLayout()
+
+        scan_layout.addWidget(QLabel("Nazwa presetu"), 0, 0)
         self.edit_preset_name = QLineEdit("default")
-        layout.addWidget(self.edit_preset_name, 0, 1)
+        scan_layout.addWidget(self.edit_preset_name, 0, 1)
 
-        # Krok jako pierwszy parametr decydujący
-        layout.addWidget(QLabel("Step [nm]"), 1, 0)
+        scan_layout.addWidget(QLabel("Step [nm]"), 1, 0)
         self.combo_preset_step = QComboBox()
         self.combo_preset_step.addItems(["10", "20", "30", "40", "50"])
         self.combo_preset_step.currentTextChanged.connect(self.update_preset_constraints)
-        layout.addWidget(self.combo_preset_step, 1, 1)
+        scan_layout.addWidget(self.combo_preset_step, 1, 1)
 
-        layout.addWidget(QLabel("Mode"), 2, 0)
+        scan_layout.addWidget(QLabel("Mode"), 2, 0)
         self.combo_preset_mode = QComboBox()
         self.combo_preset_mode.addItems(list(self.bandwidth_modes.keys()))
-        layout.addWidget(self.combo_preset_mode, 2, 1)
+        scan_layout.addWidget(self.combo_preset_mode, 2, 1)
 
-        # Start i Stop jako listy rozwijane, wypełniane dynamicznie
-        layout.addWidget(QLabel("Start λ [nm]"), 3, 0)
+        scan_layout.addWidget(QLabel("Start λ [nm]"), 3, 0)
         self.combo_preset_start = QComboBox()
-        layout.addWidget(self.combo_preset_start, 3, 1)
+        scan_layout.addWidget(self.combo_preset_start, 3, 1)
 
-        layout.addWidget(QLabel("Stop λ [nm]"), 4, 0)
+        scan_layout.addWidget(QLabel("Stop λ [nm]"), 4, 0)
         self.combo_preset_stop = QComboBox()
-        layout.addWidget(self.combo_preset_stop, 4, 1)
+        scan_layout.addWidget(self.combo_preset_stop, 4, 1)
 
-        layout.addWidget(QLabel("Wysokość [mm]"), 5, 0)
+        scan_layout.addWidget(QLabel("Wysokość próbki [mm]"), 5, 0)
         self.spin_preset_height = QDoubleSpinBox()
         self.spin_preset_height.setRange(0.0, 200.0)
         self.spin_preset_height.setValue(10.0)
-        layout.addWidget(self.spin_preset_height, 5, 1)
+        scan_layout.addWidget(self.spin_preset_height, 5, 1)
 
-        layout.addWidget(QLabel("Długość [mm]"), 6, 0)
+        scan_layout.addWidget(QLabel("Długość próbki [mm]"), 6, 0)
         self.spin_preset_length = QDoubleSpinBox()
         self.spin_preset_length.setRange(0.0, 200.0)
         self.spin_preset_length.setValue(50.0)
-        layout.addWidget(self.spin_preset_length, 6, 1)
+        scan_layout.addWidget(self.spin_preset_length, 6, 1)
 
         btn_save = QPushButton("Zapisz preset")
         btn_save.clicked.connect(self.save_preset)
-        layout.addWidget(btn_save, 7, 0, 1, 2) # span 2 columns
+        scan_layout.addWidget(btn_save, 7, 0, 1, 2)
+        group_scan.setLayout(scan_layout)
+        main_layout.addWidget(group_scan)
 
-        layout.setRowStretch(8, 1) # push up
-        group.setLayout(layout)
-        
-        # Inicjalizacja ograniczeń dla domyślnego kroku (10)
+        # --- GRUPA 2: Edytor obiektywów (Optyka) ---
+        group_ocular = QGroupBox("Edytor obiektywów / optyki")
+        oc_layout = QGridLayout()
+
+        oc_layout.addWidget(QLabel("Nazwa obiektywu"), 0, 0)
+        self.edit_ocular_name = QLineEdit("Plan_Apo_10x")
+        oc_layout.addWidget(self.edit_ocular_name, 0, 1)
+
+        oc_layout.addWidget(QLabel("FOV X [mm]"), 1, 0)
+        self.spin_fov_x = QDoubleSpinBox()
+        self.spin_fov_x.setRange(0.01, 200.0)
+        self.spin_fov_x.setDecimals(3)
+        self.spin_fov_x.setValue(2.500)
+        self.spin_fov_x.setSingleStep(0.1)
+        oc_layout.addWidget(self.spin_fov_x, 1, 1)
+
+        oc_layout.addWidget(QLabel("FOV Y [mm]"), 2, 0)
+        self.spin_fov_y = QDoubleSpinBox()
+        self.spin_fov_y.setRange(0.01, 200.0)
+        self.spin_fov_y.setDecimals(3)
+        self.spin_fov_y.setValue(1.800)
+        self.spin_fov_y.setSingleStep(0.1)
+        oc_layout.addWidget(self.spin_fov_y, 2, 1)
+
+        oc_layout.addWidget(QLabel("Zakładka (Overlap) [%]"), 3, 0)
+        self.spin_overlap = QSpinBox()
+        self.spin_overlap.setRange(0, 90)
+        self.spin_overlap.setValue(15)
+        oc_layout.addWidget(self.spin_overlap, 3, 1)
+
+        btn_save_oc = QPushButton("Zapisz obiektyw")
+        btn_save_oc.clicked.connect(self.save_ocular)
+        oc_layout.addWidget(btn_save_oc, 4, 0, 1, 2)
+        group_ocular.setLayout(oc_layout)
+        main_layout.addWidget(group_ocular)
+
+        main_layout.addStretch()
         self.update_preset_constraints()
         return group
 
@@ -396,10 +467,22 @@ class App(QMainWindow):
         self.acquisition.set_hardware_params(wavelength, exposure, bandwidth_name, gain)
 
     def start_scan(self):
+        # Sprawdzanie presetu skanowania
         if not self.preset_start_wavelength:
-            QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu!")
+            QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu skanowania!")
             return
-            
+
+        # Sprawdzanie presetu optyki
+        if not hasattr(self, 'preset_fov_x') or not self.preset_fov_x:
+            QMessageBox.warning(self, "Błąd", "Nie wybrano obiektywu! Wybierz go z listy po prawej stronie.")
+            return
+
+        # Pobieranie wymiarów próbki z aktualnego presetu
+        preset_name = self.combo_select_preset.currentText()
+        p_data = self.presets.get_preset_data(preset_name)
+        sample_w = p_data.get("sample_length", 10.0)
+        sample_h = p_data.get("sample_height", 10.0)
+
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
             print("[INFO] Zatrzymywanie Live View przed rozpoczęciem skanowania...")
             self.stop_live_view_action()
@@ -410,11 +493,34 @@ class App(QMainWindow):
         mode = self.preset_mode
         gain = self.spin_gain.value()
 
-        print(f"[INFO] Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
+        fov_x = self.preset_fov_x
+        fov_y = self.preset_fov_y
+        overlap = self.preset_overlap
+
+        print(
+            f"[INFO] Uruchamianie skanowania Mozaiki: {sample_w}x{sample_h}mm (Obiektyw: {fov_x}x{fov_y}mm, Zakładka {overlap}%)")
 
         def run_thread():
-            self.acquisition.scan_sequence(self.save_path, start, stop, step, mode, gain)
-            print("[INFO] Wątek skanowania zakończony.")
+            self.acquisition.scan_sequence(
+                platform=self.platform,
+                save_path=self.save_path,
+                starting_wavelength=start,
+                ending_wavelength=stop,
+                step=step,
+                mode=mode,
+                gain=gain,
+                sample_w=sample_w,
+                sample_h=sample_h,
+                fov_x=fov_x,
+                fov_y=fov_y,
+                overlap=overlap
+            )
+
+            from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+            QMetaObject.invokeMethod(self.label_pos, "setText",
+                                     Qt.ConnectionType.QueuedConnection,
+                                     Q_ARG(str,
+                                           f"Pozycja: X={self.platform.x_state:.2f}, Y={self.platform.y_state:.2f}, Z={self.platform.z_state:.2f}"))
 
         scan_thread = threading.Thread(target=run_thread)
         scan_thread.daemon = True
@@ -463,6 +569,22 @@ class App(QMainWindow):
             return
 
         self.platform.unlock()
+
+    #Platforma przemieszcza się na srodek obszaru roboczego
+    def platform_move_to_center(self):
+        # Sprawdzenie czy maszyna jest połączona
+        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+            return
+
+        # Sprawdzenie czy maszyna nie jest w stanie Alarmu
+        if not self.platform.is_ready:
+            QMessageBox.warning(self, "Blokada Platformy",
+                                "Platforma jest zablokowana (stan Alarm).\nProszę wykonać Homing ($H) lub Unlock ($X), aby umożliwić ruch.")
+            return
+
+        self.platform.move_to_center()
+        self.update_position_label()
 
     # regulacja oswietleenia probki
     def adjust_lighting(self):
@@ -569,6 +691,73 @@ class App(QMainWindow):
                 self.preset_name = None
                 self.preset_start_wavelength = None
 
+    def save_ocular(self):
+        name = self.edit_ocular_name.text()
+        if not name:
+            print("[INFO] Błąd: Podaj nazwę obiektywu!")
+            return
+
+        preset_data = {
+            "fov_x_mm": self.spin_fov_x.value(),
+            "fov_y_mm": self.spin_fov_y.value(),
+            "overlap_percent": self.spin_overlap.value()
+        }
+
+        self.oculars.save_new_preset(name, preset_data)
+
+        # Odświeżenie listy GUI
+        updated_names = list(self.oculars.get_preset_names())
+        self.combo_select_ocular.clear()
+        self.combo_select_ocular.addItems(updated_names)
+        self.combo_select_ocular.setCurrentText(name)
+
+    def delete_ocular_action(self):
+        selected_name = self.combo_select_ocular.currentText()
+        if not selected_name:
+            return
+
+        reply = QMessageBox.question(self, "Usuwanie obiektywu",
+                                     f"Czy na pewno chcesz usunąć obiektyw '{selected_name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.oculars.delete_preset(selected_name)
+
+            updated_names = list(self.oculars.get_preset_names())
+            self.combo_select_ocular.blockSignals(True)
+            self.combo_select_ocular.clear()
+            self.combo_select_ocular.addItems(updated_names)
+            self.combo_select_ocular.blockSignals(False)
+
+            if updated_names:
+                self.combo_select_ocular.setCurrentIndex(0)
+                self.on_ocular_selected(self.combo_select_ocular.currentText())
+            else:
+                self.label_ocular_fov.setText("FOV: --- x --- mm")
+                self.label_ocular_overlap.setText("Zakładka: --- %")
+                self.preset_fov_x, self.preset_fov_y, self.preset_overlap = None, None, None
+
+    def on_ocular_selected(self, text):
+        selected_name = text
+
+        # Jeśli wybrano opcję pustą lub brak tekstu
+        if selected_name == "Wybierz obiektyw" or not selected_name:
+            self.label_ocular_fov.setText("FOV: --- x --- mm")
+            self.label_ocular_overlap.setText("Zakładka: --- %")
+            self.preset_fov_x, self.preset_fov_y, self.preset_overlap = None, None, None
+            return
+
+        preset_data = self.oculars.get_preset_data(selected_name)
+
+        if preset_data:
+            self.preset_fov_x = preset_data.get("fov_x_mm", 0.0)
+            self.preset_fov_y = preset_data.get("fov_y_mm", 0.0)
+            self.preset_overlap = preset_data.get("overlap_percent", 0)
+
+            self.label_ocular_fov.setText(f"FOV: {self.preset_fov_x} x {self.preset_fov_y} mm")
+            self.label_ocular_overlap.setText(f"Zakładka: {self.preset_overlap} %")
+            print(f"[INFO] Załadowano obiektyw '{selected_name}'.")
+
     def start_live_view_action(self):
         if not self.acquisition.camera_connected:
             print("[INFO] Najpierw połącz kamerę!")
@@ -590,6 +779,19 @@ class App(QMainWindow):
 
     def on_preset_selected(self, text):
         selected_name = text
+
+        # Jeśli wybrano opcję pustą lub brak tekstu
+        if selected_name == "Wybierz preset" or not selected_name:
+            self.label_mode.setText("Mode: ---")
+            self.label_range.setText("Zakres λ: ---")
+            self.label_step.setText("Step: ---")
+            self.label_geo.setText("Geometry: ---")
+
+            self.preset_mode = None
+            self.preset_start_wavelength = None
+            self.preset_end_wavelength = None
+            self.preset_step = None
+            return
 
         preset_data = self.presets.get_preset_data(selected_name)
 

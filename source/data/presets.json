@@ -20,9 +20,11 @@
         "step": 10
     },
     "default2": {
-        "mode": "Medium",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
+        "mode": "Wide",
+        "start_wavelength": 450,
+        "end_wavelength": 700,
+        "step": 10,
+        "sample_height": 10.0,
+        "sample_length": 50.0
     }
 }

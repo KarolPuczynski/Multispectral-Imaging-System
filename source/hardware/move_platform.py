@@ -1,4 +1,6 @@
 import os
+import math
+import time
 from hardware.grbl_handling import GrblClient
 
 class Platform:
@@ -17,7 +19,7 @@ class Platform:
 
         # pozycja xy platformy (w mm), ktora podjezdza centralnie pod kamerke
         # TODO trzeba dokladnei to wymierzyc
-        self.platform_center = (50.0, 50.0)
+        self.platform_center = (30.0, 30.0)
 
     def connect(self):
         self.grbl.connect()
@@ -85,6 +87,34 @@ class Platform:
             self.move_single_axis(f'G91 X{x_distance_to_center} Y{y_distance_to_center} F500')
             self.x_state = self.platform_center[0]
             self.y_state = self.platform_center[1]
+
+    def move_to_position_blocking(self, target_x, target_y):
+        # Obliczanie fizycznego dystansu do pokonania
+        dx = target_x - self.x_state
+        dy = target_y - self.y_state
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+
+        if distance == 0:
+            return True
+
+        # Przejście w tryb absolutny (G90), wysłanie ruchu i powrót do relatywnego (G91)
+        feedrate = 500
+        self.move_single_axis(f'G90')
+        self.move_single_axis(f'G1 X{target_x} Y{target_y} F{feedrate}')
+        self.move_single_axis(f'G91')
+
+        # Aktualizacja wewnętrznego stanu w Pythonie
+        self.x_state = target_x
+        self.y_state = target_y
+
+        # Obliczanie czasu i oczekiwanie na ustabilizowanie
+        # Prędkość to 500 mm/min = ok. 8.33 mm/sek
+        move_time_seconds = distance / (feedrate / 60.0)
+
+        # 0.5s marginesu na wytracenie pędu i wibracji stolika
+        time.sleep(move_time_seconds + 0.5)
+
+        return True
         
 
 if __name__ == "__main__":
