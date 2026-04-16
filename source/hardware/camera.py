@@ -1,9 +1,8 @@
 import numpy as np
-import cv2
 import threading
 import queue
-import time
 from PIL import Image
+import threading
 
 try:
     from utilis.dll_loader import configure_path
@@ -110,66 +109,73 @@ class ThorlabsCamera:
         self.live_thread = None
         self.is_live = False
 
+        self._lock = threading.Lock()
+
         print(f"[CAM] Kamera gotowa: {cameras[0]} (ekspozycja: {exposure_us} µs)")
 
     def start_live_view(self):
-        if self.is_live:
-            return None
+        with self._lock:
+            if self.is_live:
+                return None
 
-        print("[CAM] Uruchamianie Live View")
-        self.camera.frames_per_trigger_zero_for_unlimited = 0
-        self.camera.arm(2)
-        self.camera.issue_software_trigger()
+            print("[CAM] Uruchamianie Live View")
+            self.camera.frames_per_trigger_zero_for_unlimited = 0
+            self.camera.arm(2)
+            self.camera.issue_software_trigger()
 
-        self.live_thread = ImageAcquisitionThread(self.camera)
-        self.live_thread.start()
-        self.is_live = True
-        return self.live_thread.get_output_queue()
+            self.live_thread = ImageAcquisitionThread(self.camera)
+            self.live_thread.start()
+            self.is_live = True
+            return self.live_thread.get_output_queue()
 
     def stop_live_view(self):
-        if not self.is_live or not self.live_thread:
-            return
+        with self._lock:
+            if not self.is_live or not self.live_thread:
+                return
 
-        print("[CAM] Zatrzymywanie Live View")
-        self.live_thread.stop()
-        self.live_thread.join()
+            print("[CAM] Zatrzymywanie Live View")
+            self.live_thread.stop()
+            self.live_thread.join()
 
-        self.camera.disarm()
-        self.is_live = False
-        self.live_thread = None
+            self.camera.disarm()
+            self.is_live = False
+            self.live_thread = None
 
     def capture_frame(self):
+        with self._lock:
+            if self.is_live:
+                return None
 
-        self.camera.frames_per_trigger_zero_for_unlimited = 0
-        
-        self.camera.image_poll_timeout_ms = int(self.camera.exposure_time_us / 1000) + 1000
-        
-        self.camera.arm(2)
-        self.camera.issue_software_trigger()
+            self.camera.frames_per_trigger_zero_for_unlimited = 0
+            
+            self.camera.image_poll_timeout_ms = int(self.camera.exposure_time_us / 1000) + 1000
+            
+            self.camera.arm(2)
+            self.camera.issue_software_trigger()
 
-        frame = self.camera.get_pending_frame_or_null()
+            frame = self.camera.get_pending_frame_or_null()
 
-        if frame is None:
-            print("[CAM] Błąd: nie udalo sie pobrac klatki")
+            if frame is None:
+                print("[CAM] Błąd: nie udalo sie pobrac klatki")
+                self.camera.disarm()
+                return None
+
+            img = np.copy(frame.image_buffer)
+
+            numpy_shaped_image = img.reshape(self.camera.image_height_pixels, self.camera.image_width_pixels)
+
             self.camera.disarm()
-            return None
-
-        img = np.copy(frame.image_buffer)
-
-        numpy_shaped_image = img.reshape(self.camera.image_height_pixels, self.camera.image_width_pixels)
-
-        self.camera.disarm()
-        return numpy_shaped_image
+            return numpy_shaped_image
 
     def save_frame(self, filename):
         frame = self.capture_frame()
         if frame is not None:
-            cv2.imwrite(filename, frame)
-            print(f"[CAM] Zapisano: {filename}")
+            Image.fromarray(frame).save(filename)
 
     def close(self):
         if self.is_live:
             self.stop_live_view()
-        self.camera.dispose()
-        self.sdk.dispose()
-        print("[CAM] Kamera zamknieta")
+
+        with self._lock:
+            self.camera.dispose()
+            self.sdk.dispose()

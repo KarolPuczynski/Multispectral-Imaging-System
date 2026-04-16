@@ -1,10 +1,9 @@
 import sys
 import os
 import threading
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-                             QGroupBox, QPushButton, QLabel, QLineEdit, QComboBox, 
-                             QSpinBox, QDoubleSpinBox, QSlider, QMessageBox, QFrame, QFileDialog)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import Qt, QTimer
+
 from core.acquisition import Acquisition
 from core.preset_handling import PresetManager
 from hardware.move_platform import Platform
@@ -18,24 +17,22 @@ class App(QMainWindow):
         super().__init__()
         self.setWindowTitle("Multispectral System")
 
-        # 1. Inicjalizacja potrzebnych obiektow klas, parametrow (acquisition, presets, platform bandwidth_modes)
-        self.init_logic_modules()
-
         self.save_path = os.getcwd()
 
-        # 2. Inicjalizacja UI 
+        self.init_logic_modules()
         self.init_ui()
 
-        # 3. Parametry wybranego presetu 
         self.preset_name = None
         self.preset_mode = None
         self.preset_start_wavelength = None
         self.preset_end_wavelength = None
         self.preset_step = None
 
-    # --- LOGIKA I ZMIENNE ---
+        self.debounce_timer = QTimer()
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self.refresh_live_parameters)
 
-    # Funkcja do zainicjowania klas sterujacych sprzetem i danymi
+
     def init_logic_modules(self):
         self.acquisition = Acquisition()
         self.presets = PresetManager("presets.json")
@@ -43,30 +40,24 @@ class App(QMainWindow):
         self.pwm_controller = LedController(port="COM6")
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
 
-    # --- BUDOWANIE INTERFEJSU (GUI) ---
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QGridLayout(central_widget)
         
-        # proporcja sekcji ui (lewego panelu, srodkowego i prawego)
         main_layout.setColumnStretch(0, 1)
         main_layout.setColumnStretch(1, 4)
         main_layout.setColumnStretch(2, 1)
 
-        # Lewy panel
         left_panel = self.create_left_panel()
         main_layout.addWidget(left_panel, 0, 0)
 
-        # Środkowy panel
         middle_panel = self.create_middle_panel()
         main_layout.addWidget(middle_panel, 0, 1)
 
-        # Prawy panel
         right_panel = self.create_right_panel()
         main_layout.addWidget(right_panel, 0, 2)
 
-    # Lewy panel GUI: Przyciski, Statusy, Manual, Oś Z, PWM
     def create_left_panel(self):
         group_box = QGroupBox("Urządzenia & akwizycja")
         layout = QVBoxLayout()
@@ -113,7 +104,6 @@ class App(QMainWindow):
         group_box.setLayout(layout)
         return group_box
 
-    # Sekcja do wpisywania manualnych parametrow zdjecia
     def _create_manual_controls(self):
         group = QGroupBox("Parametry zdjęcia (manualne)")
         layout = QGridLayout()
@@ -122,14 +112,14 @@ class App(QMainWindow):
         self.spin_wavelength = QSpinBox()
         self.spin_wavelength.setRange(450, 700)
         self.spin_wavelength.setValue(500)
-        self.spin_wavelength.valueChanged.connect(self.refresh_live_parameters)
+        self.spin_wavelength.valueChanged.connect(self.trigger_hardware_update)
         layout.addWidget(self.spin_wavelength, 0, 1)
 
         layout.addWidget(QLabel("Ekspozycja [µs]"), 1, 0)
         self.spin_exposure = QSpinBox()
         self.spin_exposure.setRange(100, 59269000) # range of exposure times for CS135MU camera [us]
         self.spin_exposure.setValue(50000)
-        self.spin_exposure.valueChanged.connect(self.refresh_live_parameters)
+        self.spin_exposure.valueChanged.connect(self.trigger_hardware_update)
         layout.addWidget(self.spin_exposure, 1, 1)
 
         layout.addWidget(QLabel("Gain"), 2, 0)
@@ -137,12 +127,12 @@ class App(QMainWindow):
         self.spin_gain.setRange(0.0, 48.0) # range of gain for CS135MU camera
         self.spin_gain.setSingleStep(0.1) 
         self.spin_gain.setValue(0.0)
-        self.spin_gain.valueChanged.connect(self.refresh_live_parameters)
+        self.spin_gain.valueChanged.connect(self.trigger_hardware_update)
         layout.addWidget(self.spin_gain, 2, 1)
 
         self.combo_bandwidth = QComboBox()
         self.combo_bandwidth.addItems(list(self.bandwidth_modes.keys()))
-        self.combo_bandwidth.currentTextChanged.connect(self.refresh_live_parameters)
+        self.combo_bandwidth.currentTextChanged.connect(self.trigger_hardware_update)
         layout.addWidget(QLabel("Tryb pasma"), 3, 0)
         layout.addWidget(self.combo_bandwidth, 3, 1)
 
@@ -150,6 +140,8 @@ class App(QMainWindow):
         return group
 
     def _create_save_path_controls(self):
+        self.image_formats = (".tiff", ".png", ".jpg")
+
         group = QGroupBox("Ścieżka zapisu")
         layout = QGridLayout()
 
@@ -160,6 +152,11 @@ class App(QMainWindow):
         btn_select_path = QPushButton("Wybierz...")
         btn_select_path.clicked.connect(self.select_save_directory)
         layout.addWidget(btn_select_path, 0, 1)
+
+        self.combo_image_format = QComboBox()
+        self.combo_image_format.addItems(self.image_formats)
+        layout.addWidget(QLabel("Format zapisu"), 1, 0)
+        layout.addWidget(self.combo_image_format, 1, 1)
 
         group.setLayout(layout)
         return group
@@ -237,7 +234,6 @@ class App(QMainWindow):
         group.setLayout(layout)
         return group
 
-    # Srodkowa kolumna GUI: wyswietlanie aktywnego presetu i live view
     def create_middle_panel(self):
         group = QGroupBox("Podgląd i Preset")
         layout = QVBoxLayout()
@@ -296,8 +292,11 @@ class App(QMainWindow):
         group.setLayout(layout)
         return group
  
-    # Prawa kolumna GUI: edytor presetów
     def create_right_panel(self):
+        panel_widget = QWidget()
+        panel_layout = QVBoxLayout(panel_widget)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+
         group = QGroupBox("Edytor presetów")
         layout = QGridLayout()
 
@@ -347,9 +346,57 @@ class App(QMainWindow):
         
         # Inicjalizacja ograniczeń dla domyślnego kroku (10)
         self.update_preset_constraints()
-        return group
+        
+        panel_layout.addWidget(group)
 
-    # --- OBSŁUGA ZDARZEŃ  ---
+        fs_group = QGroupBox("Focus Stacking")
+        fs_layout = QGridLayout()
+
+        fs_layout.addWidget(QLabel("Min. wysokość Z [mm]"), 0, 0)
+        self.spin_fs_min_height = QDoubleSpinBox()
+        self.spin_fs_min_height.setRange(0.0, 200.0)
+        self.spin_fs_min_height.setValue(0.0)
+        self.spin_fs_min_height.setSingleStep(0.1)
+        fs_layout.addWidget(self.spin_fs_min_height, 0, 1)
+
+        fs_layout.addWidget(QLabel("Maks. wysokość (obecna) [mm]"), 1, 0)
+        self.spin_fs_max_height = QDoubleSpinBox()
+        self.spin_fs_max_height.setRange(0.0, 200.0)
+        self.spin_fs_max_height.setReadOnly(True)
+        self.spin_fs_max_height.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        fs_layout.addWidget(self.spin_fs_max_height, 1, 1)
+
+        fs_layout.addWidget(QLabel("Ilość zdjęć"), 2, 0)
+        self.spin_fs_frames = QSpinBox()
+        self.spin_fs_frames.setRange(2, 500)
+        self.spin_fs_frames.setValue(5)
+        fs_layout.addWidget(self.spin_fs_frames, 2, 1)
+
+        self.check_fs_hypercube = QCheckBox("Wykonaj Hypercube scan")
+        self.check_fs_hypercube.stateChanged.connect(self.toggle_fs_preset)
+        fs_layout.addWidget(self.check_fs_hypercube, 3, 0, 1, 2)
+
+        self.label_fs_preset = QLabel("Wybierz preset:")
+        self.label_fs_preset.setEnabled(False)
+        fs_layout.addWidget(self.label_fs_preset, 4, 0)
+
+        self.combo_fs_preset = QComboBox()
+        self.combo_fs_preset.addItems(list(self.presets.get_preset_names()))
+        self.combo_fs_preset.setEnabled(False)
+        fs_layout.addWidget(self.combo_fs_preset, 4, 1)
+
+        btn_run_fs = QPushButton("Rozpocznij Focus Stacking")
+        btn_run_fs.clicked.connect(self.run_focus_stacking)
+        fs_layout.addWidget(btn_run_fs, 5, 0, 1, 2)
+
+        fs_group.setLayout(fs_layout)
+        panel_layout.addWidget(fs_group)
+        
+        panel_layout.addStretch()
+
+        return panel_widget
+
+    # Buttons handling
 
     # Łączenie się z kamera i filtrem przestrajalnym
     def connect(self):
@@ -379,13 +426,14 @@ class App(QMainWindow):
             print("[INFO] Zatrzymywanie Live View przed wykonaniem zdjęcia...")
             self.stop_live_view_action()
 
+        image_format = self.combo_image_format.currentText()
         wavelength = self.spin_wavelength.value()
         exposure_time = self.spin_exposure.value()
         gain = self.spin_gain.value()
         bandwidth_name = self.combo_bandwidth.currentText()
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
 
-        self.acquisition.capture_image(self.save_path, wavelength, exposure_time, gain, bandwidth_name, bandwidth_code)
+        self.acquisition.capture_image(wavelength, exposure_time, gain, bandwidth_name, bandwidth_code, self.save_path, image_format)
 
     def refresh_live_parameters(self):
         wavelength = self.spin_wavelength.value()
@@ -394,6 +442,9 @@ class App(QMainWindow):
         bandwidth_name = self.combo_bandwidth.currentText()
 
         self.acquisition.set_hardware_params(wavelength, exposure, bandwidth_name, gain)
+
+    def trigger_hardware_update(self):
+        self.debounce_timer.start(300)
 
     def start_scan(self):
         if not self.preset_start_wavelength:
@@ -404,17 +455,15 @@ class App(QMainWindow):
             print("[INFO] Zatrzymywanie Live View przed rozpoczęciem skanowania...")
             self.stop_live_view_action()
 
-        start = self.preset_start_wavelength
-        stop = self.preset_end_wavelength
+        image_format = self.combo_image_format.currentText()
+        start_wavelength = self.preset_start_wavelength
+        stop_wavelength = self.preset_end_wavelength
         step = self.preset_step
         mode = self.preset_mode
         gain = self.spin_gain.value()
 
-        print(f"[INFO] Próba uruchomienia skanowania: {start}-{stop}nm, step {step}, mode {mode}")
-
         def run_thread():
-            self.acquisition.scan_sequence(self.save_path, start, stop, step, mode, gain)
-            print("[INFO] Wątek skanowania zakończony.")
+            self.acquisition.hypercube_scan(start_wavelength, stop_wavelength, step, mode, gain, self.save_path, image_format)
 
         scan_thread = threading.Thread(target=run_thread)
         scan_thread.daemon = True
@@ -425,7 +474,6 @@ class App(QMainWindow):
         if directory:
             self.save_path = directory
             self.edit_save_path.setText(self.save_path)
-            print(f"[INFO] Ustawiono nową ścieżkę zapisu: {self.save_path}")
 
     def validate_and_move(self, axis, direction):
         if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
@@ -446,6 +494,8 @@ class App(QMainWindow):
     def update_position_label(self):
         x, y, z = self.platform.x_state, self.platform.y_state, self.platform.z_state
         self.label_pos.setText(f"Pozycja: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
+        if hasattr(self, 'spin_fs_max_height'):
+            self.spin_fs_max_height.setValue(z)
 
     # homing platformy 
     def platform_homing(self):
@@ -570,7 +620,7 @@ class App(QMainWindow):
                 self.preset_start_wavelength = None
 
     def start_live_view_action(self):
-        if not self.acquisition.camera_connected:
+        if not self.acquisition.camera_connected and not self.acquisition.kurios_connected:
             print("[INFO] Najpierw połącz kamerę!")
             return
 
@@ -612,6 +662,54 @@ class App(QMainWindow):
             self.label_geo.setText(f"Geometry: H={p_height}mm, L={p_length}mm")
 
             print(f"[INFO] Załadowano preset '{selected_name}' do zmiennych systemowych.")
+
+    def toggle_fs_preset(self):
+        is_checked = self.check_fs_hypercube.isChecked()
+        self.label_fs_preset.setEnabled(is_checked)
+        self.combo_fs_preset.setEnabled(is_checked)
+
+    def run_focus_stacking(self):
+        if not self.platform.is_ready:
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona")
+            return
+
+        if self.acquisition.camera_connected and self.acquisition.camera.is_live and self.acquisition.kurios_connected:
+            self.stop_live_view_action()
+
+        image_format = self.combo_image_format.currentText()
+
+        bottom_height = self.spin_fs_min_height.value()
+        top_height = self.spin_fs_max_height.value()
+        num_frames = self.spin_fs_frames.value()
+        is_hypercube = self.check_fs_hypercube.isChecked()
+        
+        start_wavelength = self.spin_wavelength.value()
+        end_wavelength = start_wavelength
+        step = 10
+        mode = self.combo_bandwidth.currentText()
+        gain = self.spin_gain.value()
+
+        if is_hypercube:
+            selected_preset = self.combo_fs_preset.currentText()
+            preset_data = self.presets.get_preset_data(selected_preset)
+            if not preset_data:
+                QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu!")
+                return
+            start_wavelength = preset_data.get("start_wavelength", 500)
+            end_wavelength = preset_data.get("end_wavelength", 600)
+            step = preset_data.get("step", 10)
+            mode = preset_data.get("mode", "Wide")
+
+        def __run_fs_thread():
+            self.acquisition.focus_stack(
+                self.platform, bottom_height, top_height, num_frames, 
+                is_hypercube, start_wavelength, end_wavelength, step, mode, gain,
+                self.save_path, image_format
+            )
+
+        fs_thread = threading.Thread(target=__run_fs_thread)
+        fs_thread.daemon = True
+        fs_thread.start()
 
     # zamykamy okkno jak i ODLACZAMY KAMERE I FILTR
     def on_close(self, event=None):

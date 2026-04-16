@@ -34,7 +34,7 @@ class Platform:
         self.is_ready = True
 
     def grblsetup(self):
-        gcode_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grblsetup.gcode')
+        gcode_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grbl_setup.gcode')
         self.grbl.stream_gcode(gcode_path)
 
     def move_single_axis(self, gcode):
@@ -64,8 +64,7 @@ class Platform:
             else:
                 return False
             
-        elif axis == 'Z':
-            distance = distance / 1 # wspolczynnik skalowanosci os Z (XD)
+        elif axis == 'Z': 
             new_z = self.z_state + distance
             
             if new_z >= self.platform_min[2] and new_z <= self.platform_max[2]:
