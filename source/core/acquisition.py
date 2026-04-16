@@ -1,47 +1,14 @@
-import time
 import json
-import os
 import math
-from hardware.camera import ThorlabsCamera
+import os
+import time
+
 from PIL import Image
-from hardware.KURIOS_COMMAND_LIB import Kurios
+
 from core.stitching import MosaicStitcher
+from hardware.camera import ThorlabsCamera
+from hardware.KURIOS_COMMAND_LIB import Kurios
 
-import numpy as np
-
-SIMULATION_MODE = True
-
-class DummyKurios:
-    def SetOutputMode(self, mode): pass
-    def SetBandwidthMode(self, mode): pass
-    def SetWavelength(self, wl): pass
-    def close(self): pass
-
-class DummyCameraParams:
-    def __init__(self):
-        self.exposure_time_us = 10000
-        self.gain = 1
-
-class DummyCamera:
-    def __init__(self, exposure_us=10000):
-        self.camera = DummyCameraParams()
-        self.camera.exposure_time_us = exposure_us
-        self.is_live = False
-
-    def capture_frame(self):
-        time.sleep(self.camera.exposure_time_us / 1_000_000.0)
-        dummy_img = np.random.randint(10000, 50000, (1000, 1000), dtype=np.uint16)
-        return dummy_img
-
-    def start_live_view(self):
-        self.is_live = True
-        return None
-
-    def stop_live_view(self):
-        self.is_live = False
-
-    def close(self):
-        pass
 
 class Acquisition:
     def __init__(self):
@@ -54,55 +21,43 @@ class Acquisition:
         self.manual_wavelength = 500
         self.manual_exposure = 50000
         self.manual_bandwidth = "Medium"
-        self.bandwidth_modes = {"Wide": 2,
-                                "Medium": 4,
-                                "Narrow": 8}
-        
-        # Ładowanie danych konfiguracyjnych z plików JSON
-        self.exposure_times = self._load_json("source/data/exposure_times.json")
-        self.tuning_times = self._load_json("source/data/tuning_times.json")
+        self.bandwidth_modes = {
+            "Wide": 2,
+            "Medium": 4,
+            "Narrow": 8,
+        }
+
+        self.exposure_times = self._load_json("data/exposure_times.json")
+        self.tuning_times = self._load_json("data/tuning_times.json")
 
     def _load_json(self, path):
         if not os.path.exists(path):
-            # Wypisujemy tylko info, nie przerywamy działania (użyte zostaną wartości domyślne)
-            print(f"[INFO] Plik konfiguracyjny {path} nie został znaleziony.")
+            print(f"[INFO] Plik konfiguracyjny {path} nie zostal znaleziony.")
             return {}
+
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[INFO] Błąd podczas ładowania {path}: {e}")
+            print(f"[INFO] Blad podczas ladowania {path}: {e}")
             return {}
 
     def connect_hardware(self):
-        print("[INFO] Łączenie ze sprzętem...")
+        print("[INFO] Laczenie ze sprzetem...")
 
         if self.is_scanning:
-            print("[INFO] Nie można łączyć urządzeń podczas skanowania!")
+            print("[INFO] Nie mozna laczyc urzadzen podczas skanowania!")
             return False
 
-        #  BLOK SYMULACJI
-        if SIMULATION_MODE:
-            print("[SYMULACJA] Uruchamianie w trybie wirtualnym (bez prawdziwego sprzętu)!")
-            self.camera = DummyCamera(self.manual_exposure)
-            self.camera_connected = True
-
-            self.filter = DummyKurios()
-            self.kurios_connected = True
-
-            return True
-
         try:
-            # 1. Łączenie z Kamerą
             self.camera = ThorlabsCamera(self.manual_exposure)
             self.camera_connected = True
-            print("[CAM] Kamera połączona.")
+            print("[CAM] Kamera polaczona.")
 
-            # 2. Łączenie z Filtrem KURIOS
             self.filter = Kurios()
             devices = self.filter.list_devices()
             if not devices:
-                print("[CAM] Błąd: Nie znaleziono urządzenia KURIOS na USB.")
+                print("[CAM] Blad: Nie znaleziono urzadzenia KURIOS na USB.")
                 self.kurios_connected = False
                 return False
 
@@ -111,52 +66,47 @@ class Acquisition:
 
             if status >= 0:
                 self.kurios_connected = True
-                print(f"[CAM] KURIOS połączony na porcie: {serial_port}")
+                print(f"[CAM] KURIOS polaczony na porcie: {serial_port}")
             else:
-                print("[CAM] Błąd: Nie udało się otworzyć portu KURIOS.")
+                print("[CAM] Blad: Nie udalo sie otworzyc portu KURIOS.")
                 self.kurios_connected = False
                 return False
 
         except Exception as e:
-            print(f"[CAM] Krytyczny błąd połączenia: {e}")
+            print(f"[CAM] Krytyczny blad polaczenia: {e}")
             return False
 
         return True
 
     def capture_image(self, save_path, wavelength, exposure, gain, bandwidth_name, bandwidth_code):
         if not self.camera or not self.filter:
-            print("[INFO] Najpierw połącz urządzenia!")
+            print("[INFO] Najpierw polacz urzadzenia!")
             return
 
         if self.is_scanning:
             print("[INFO] Trwa skanowanie")
             return
 
-        # Ustawienie parametrow filtra:
-        # - długość fali w zakresie [430; 700] nm,
-        # - tryb przepustowosci: 1 = BLACK mode, 2 = WIDE, 4 = MEDIUM mode, 8 = NARROW mode
         self.filter.SetWavelength(wavelength)
         self.filter.SetBandwidthMode(bandwidth_code)
 
-        # kamera
         self.camera.camera.exposure_time_us = exposure
         try:
             if hasattr(self.camera.camera, "gain"):
-                    self.camera.camera.gain = gain
+                self.camera.camera.gain = gain
             elif hasattr(self.camera.camera, "analog_gain"):
-                    self.camera.camera.analog_gain = gain
+                self.camera.camera.analog_gain = gain
         except Exception as e:
-            print(f"[CAM] Gain nie mógł zostać ustawiony: {e}")
+            print(f"[CAM] Gain nie mogl zostac ustawiony: {e}")
 
         time.sleep(0.3)
 
         filename = f"manual_{wavelength}nm_{bandwidth_name}.tiff"
         full_path = os.path.join(save_path, filename)
         self.camera.save_frame(full_path)
-        print(f"[CAM] Zapisano zdjęcie: {full_path}")
+        print(f"[CAM] Zapisano zdjecie: {full_path}")
 
     def set_hardware_params(self, wavelength, exposure, bandwidth_name, gain):
-        """Aktualizuje parametry sprzetu (Live View) bez zapisu zdjecia."""
         if self.filter and self.kurios_connected:
             bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
             self.filter.SetWavelength(wavelength)
@@ -181,9 +131,8 @@ class Acquisition:
             self.camera.stop_live_view()
 
     def generate_scan_grid(self, sample_width, sample_height, fov_x, fov_y, overlap_percent):
-
         if fov_x <= 0 or fov_y <= 0 or sample_width <= 0 or sample_height <= 0:
-            print("[INFO] Błędne wymiary FOV lub próbki. Zwracam pustą siatkę.")
+            print("[INFO] Bledne wymiary FOV lub probki. Zwracam pusta siatke.")
             return []
 
         overlap_factor = overlap_percent / 100.0
@@ -193,58 +142,48 @@ class Acquisition:
         cols = max(1, math.ceil(sample_width / step_x))
         rows = max(1, math.ceil(sample_height / step_y))
 
-        # Obliczamy o ile musimy przesunąć siatkę, żeby (0,0) było dokładnie w jej centrum
         offset_x = ((cols - 1) * step_x) / 2.0
         offset_y = ((rows - 1) * step_y) / 2.0
 
         grid_points = []
+        for row in range(rows):
+            y = (row * step_y) - offset_y
+            col_range = range(cols) if row % 2 == 0 else range(cols - 1, -1, -1)
 
-        for r in range(rows):
-            # Odejmujemy offset, więc zaczynamy od wartości ujemnych
-            y = (r * step_y) - offset_y
-
-            col_range = range(cols) if r % 2 == 0 else range(cols - 1, -1, -1)
-
-            for c in col_range:
-                x = (c * step_x) - offset_x
+            for col in col_range:
+                x = (col * step_x) - offset_x
                 grid_points.append((x, y))
 
         print(
-            f"[INFO] Wygenerowano wyśrodkowaną siatkę: {cols}x{rows} ({len(grid_points)} pkt). Offset do rogu: X={-offset_x:.2f}, Y={-offset_y:.2f}")
+            f"[INFO] Wygenerowano wysrodkowana siatke: {cols}x{rows} ({len(grid_points)} pkt). "
+            f"Offset do rogu: X={-offset_x:.2f}, Y={-offset_y:.2f}"
+        )
         return grid_points
 
-    def scan_sequence(self, platform, save_path, starting_wavelength, ending_wavelength, step, mode, gain,
-                      sample_w, sample_h, fov_x, fov_y, overlap):
-        if not self.camera or not self.filter:
-            print("[INFO] Najpierw połącz urządzenia optyczne!")
-            return
-        if not platform.grbl.ser or not platform.grbl.ser.is_open:
-            print("[INFO] Najpierw połącz platformę!")
-            return
-        if self.is_scanning:
-            print("[INFO] Skanowanie już trwa!")
-            return
-
-        self.is_scanning = True
-        self.filter.SetOutputMode(1)
-
-        # Generowanie siatki
+    def create_mosaic_scan_plan(self, sample_w, sample_h, fov_x, fov_y, overlap):
         grid_points = self.generate_scan_grid(sample_w, sample_h, fov_x, fov_y, overlap)
         if not grid_points:
-            self.is_scanning = False
-            return
+            return None
 
-        # Zapisujemy pozycję startową jako pozycję (0,0)
-        center_x = platform.x_state
-        center_y = platform.y_state
-        print(f"[INFO] Rozpoczynam skanowanie. Środek próbki: X={center_x:.2f}, Y={center_y:.2f}")
+        return {
+            "sample_width": sample_w,
+            "sample_height": sample_h,
+            "fov_x": fov_x,
+            "fov_y": fov_y,
+            "overlap": overlap,
+            "grid_points": grid_points,
+        }
 
+    def _create_scan_directory(self, save_path):
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         mosaic_dir = os.path.join(save_path, f"Mosaic_{timestamp}")
         os.makedirs(mosaic_dir, exist_ok=True)
+        return mosaic_dir
 
+    def _prepare_scan_capture(self, mode, gain):
         bandwidth_name = mode
         bandwidth_code = self.bandwidth_modes.get(bandwidth_name, 4)
+        self.filter.SetOutputMode(1)
         self.filter.SetBandwidthMode(bandwidth_code)
         time.sleep(0.2)
 
@@ -256,88 +195,204 @@ class Acquisition:
         except Exception:
             pass
 
-        wavelengths = list(range(starting_wavelength, ending_wavelength + 1, step))
-        metadata_tiles = []
+        return bandwidth_name
 
-        # Główna pętla po kafelkach
-        for tile_idx, (dx, dy) in enumerate(grid_points):
-            target_x = center_x + dx
-            target_y = center_y + dy
+    def _capture_tile_sequence(self, wavelengths, bandwidth_name):
+        captured_data = []
+        previous_wavelength = wavelengths[0]
 
-            print(
-                f"\n[SCAN] --- Kafelek {tile_idx + 1}/{len(grid_points)} --- (Ruch do X={target_x:.2f}, Y={target_y:.2f})")
+        for index, wavelength in enumerate(wavelengths):
+            self.filter.SetWavelength(wavelength)
 
-            success = platform.move_to_position_blocking(target_x, target_y)
+            if index > 0:
+                key = f"{previous_wavelength},{wavelength}"
+                delay_ms = self.tuning_times.get(bandwidth_name, {}).get(key, 200)
+                time.sleep(delay_ms / 1000.0)
+            else:
+                time.sleep(0.2)
 
-            if not success:
-                print(f"[SCAN] Pomijam kafelek {tile_idx + 1}, aby uniknąć kolizji z ramą maszyny.")
-                continue 
+            exposure = self.exposure_times.get(bandwidth_name, {}).get(str(wavelength), 10000)
+            self.camera.camera.exposure_time_us = exposure
 
-            captured_data = []
-            prev_wavelength = wavelengths[0]
+            frame = self.camera.capture_frame()
+            if frame is not None:
+                captured_data.append(
+                    {
+                        "frame_data": frame,
+                        "wavelength": wavelength,
+                        "exposure_us": exposure,
+                    }
+                )
 
-            # Pętla spektralna
-            for i, wavelength in enumerate(wavelengths):
-                self.filter.SetWavelength(wavelength)
-                if i > 0:
-                    key = f"{prev_wavelength},{wavelength}"
-                    delay_ms = self.tuning_times.get(bandwidth_name, {}).get(key, 200)
-                    time.sleep(delay_ms / 1000.0)
-                else:
-                    time.sleep(0.2)
+            previous_wavelength = wavelength
 
-                exp = self.exposure_times.get(bandwidth_name, {}).get(str(wavelength), 10000)
-                self.camera.camera.exposure_time_us = exp
+        return captured_data
 
-                frame = self.camera.capture_frame()
-                if frame is not None:
-                    captured_data.append({"frame_data": frame, "wavelength": wavelength, "exposure_us": exp})
+    def _save_sequence(self, captured_data, save_dir, filename):
+        if not captured_data:
+            return None
 
-                prev_wavelength = wavelength
+        full_path = os.path.join(save_dir, filename)
+        pil_images = [Image.fromarray(item["frame_data"]) for item in captured_data]
+        pil_images[0].save(full_path, save_all=True, append_images=pil_images[1:])
+        return full_path
 
-            # Zapisywanie kafelka do pliku TIFF
-            if captured_data:
-                filename = f"tile_{tile_idx:03d}_X{dx:.2f}_Y{dy:.2f}.tiff"
-                full_path = os.path.join(mosaic_dir, filename)
+    def save_mosaic_layout(self, mosaic_dir, plan, metadata_tiles):
+        with open(os.path.join(mosaic_dir, "mosaic_layout.json"), "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "sample_width": plan["sample_width"],
+                    "sample_height": plan["sample_height"],
+                    "fov_x": plan["fov_x"],
+                    "fov_y": plan["fov_y"],
+                    "overlap": plan["overlap"],
+                    "tiles": metadata_tiles,
+                },
+                f,
+                indent=4,
+            )
 
-                pil_images = [Image.fromarray(item["frame_data"]) for item in captured_data]
-                pil_images[0].save(full_path, save_all=True, append_images=pil_images[1:])
-
-                metadata_tiles.append({
-                    "tile_index": tile_idx,
-                    "filename": filename,
-                    "relative_x": dx,
-                    "relative_y": dy
-                })
-
-        # Zapis pliku JSON z metadanymi mozaiki
-        with open(os.path.join(mosaic_dir, "mosaic_layout.json"), "w") as f:
-            json.dump({
-                "sample_width": sample_w, "sample_height": sample_h,
-                "fov_x": fov_x, "fov_y": fov_y, "overlap": overlap,
-                "tiles": metadata_tiles
-            }, f, indent=4)
-
-
-        # Powrót na środek po zakończeniu skanowania
-        print("\n[INFO] Skanowanie fizyczne zakończone. Wracam na środek...")
-        platform.move_to_position_blocking(center_x, center_y)
-
-        # Automatyczne zszywanie mozaiki
-        print("[INFO] Rozpoczynam automatyczne zszywanie kafelków do hiperkostki...")
+    def stitch_mosaic(self, mosaic_dir, output_filename="finalna_hiperkostka_mozaika.tiff"):
+        print("[INFO] Rozpoczynam automatyczne zszywanie kafelkow do hiperkostki...")
         try:
             stitcher = MosaicStitcher(mosaic_dir)
-            stitch_success = stitcher.stitch("finalna_hiperkostka_mozaika.tiff")
+            stitch_success = stitcher.stitch(output_filename)
 
             if stitch_success:
-                print(f"[INFO] SUKCES! Zszyta hiperkostka znajduje się w folderze: {mosaic_dir}")
+                print(f"[INFO] SUKCES! Zszyta hiperkostka znajduje sie w folderze: {mosaic_dir}")
             else:
-                print("[INFO] BŁĄD: Proces zszywania zakończył się niepowodzeniem.")
+                print("[INFO] BLAD: Proces zszywania zakonczyl sie niepowodzeniem.")
+            return stitch_success
         except Exception as e:
-            print(f"[INFO] KRYTYCZNY BŁĄD ZSZYWANIA: {e}")
+            print(f"[INFO] KRYTYCZNY BLAD ZSZYWANIA: {e}")
+            return False
 
-        self.is_scanning = False
-        print("[INFO] Wszystkie zadania gotowe. Możesz używać systemu.")
+    def scan_sequence(
+        self,
+        save_path,
+        starting_wavelength,
+        ending_wavelength,
+        step,
+        mode,
+        gain,
+        filename="scan_sequence.tiff",
+    ):
+        if not self.camera or not self.filter:
+            print("[INFO] Najpierw polacz urzadzenia optyczne!")
+            return None
+        if self.is_scanning:
+            print("[INFO] Skanowanie juz trwa!")
+            return None
+
+        wavelengths = []
+        captured_data = []
+        saved_path = None
+
+        self.is_scanning = True
+        try:
+            bandwidth_name = self._prepare_scan_capture(mode, gain)
+            wavelengths = list(range(starting_wavelength, ending_wavelength + 1, step))
+            captured_data = self._capture_tile_sequence(wavelengths, bandwidth_name)
+            saved_path = self._save_sequence(captured_data, save_path, filename)
+        finally:
+            self.is_scanning = False
+            print("[INFO] Seria zdjec zakonczona.")
+
+        return {
+            "save_path": saved_path,
+            "filename": filename,
+            "wavelengths": wavelengths,
+            "frames_captured": len(captured_data),
+        }
+
+    def run_mosaic_scan(
+        self,
+        platform,
+        save_path,
+        starting_wavelength,
+        ending_wavelength,
+        step,
+        mode,
+        gain,
+        sample_w,
+        sample_h,
+        fov_x,
+        fov_y,
+        overlap,
+    ):
+        plan = self.create_mosaic_scan_plan(sample_w, sample_h, fov_x, fov_y, overlap)
+        if not plan:
+            return None
+
+        if not self.camera or not self.filter:
+            print("[INFO] Najpierw polacz urzadzenia optyczne!")
+            return None
+        if not platform.grbl.ser or not platform.grbl.ser.is_open:
+            print("[INFO] Najpierw polacz platforme!")
+            return None
+        if self.is_scanning:
+            print("[INFO] Skanowanie juz trwa!")
+            return None
+
+        self.is_scanning = True
+        center_x = platform.x_state
+        center_y = platform.y_state
+        mosaic_dir = self._create_scan_directory(save_path)
+        metadata_tiles = []
+
+        try:
+            for tile_idx, (dx, dy) in enumerate(plan["grid_points"]):
+                target_x = center_x + dx
+                target_y = center_y + dy
+
+                print(
+                    f"\n[SCAN] --- Kafelek {tile_idx + 1}/{len(plan['grid_points'])} --- "
+                    f"(Ruch do X={target_x:.2f}, Y={target_y:.2f})"
+                )
+
+                success = platform.move_to_position_blocking(target_x, target_y)
+                if not success:
+                    print(f"[SCAN] Pomijam kafelek {tile_idx + 1}, aby uniknac kolizji z rama maszyny.")
+                    continue
+
+                self.is_scanning = False
+                filename = f"tile_{tile_idx:03d}_X{dx:.2f}_Y{dy:.2f}.tiff"
+                tile_result = self.scan_sequence(
+                    save_path=mosaic_dir,
+                    starting_wavelength=starting_wavelength,
+                    ending_wavelength=ending_wavelength,
+                    step=step,
+                    mode=mode,
+                    gain=gain,
+                    filename=filename,
+                )
+                self.is_scanning = True
+
+                if tile_result and tile_result["save_path"]:
+                    metadata_tiles.append(
+                        {
+                            "tile_index": tile_idx,
+                            "filename": filename,
+                            "relative_x": dx,
+                            "relative_y": dy,
+                        }
+                    )
+        finally:
+            print("\n[INFO] Skanowanie fizyczne zakonczone. Wracam na srodek...")
+            platform.move_to_position_blocking(center_x, center_y)
+            self.is_scanning = False
+            print("[INFO] Cala sekwencja mozaiki zakonczona.")
+
+        scan_result = {
+            "mosaic_dir": mosaic_dir,
+            "tiles": metadata_tiles,
+            "center_x": center_x,
+            "center_y": center_y,
+            "scan_points": plan["grid_points"],
+        }
+        self.save_mosaic_layout(scan_result["mosaic_dir"], plan, scan_result["tiles"])
+        scan_result["stitch_success"] = self.stitch_mosaic(scan_result["mosaic_dir"])
+        return scan_result
 
     def cleanup(self):
         if self.camera is not None:

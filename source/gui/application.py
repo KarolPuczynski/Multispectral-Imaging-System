@@ -501,7 +501,7 @@ class App(QMainWindow):
             f"[INFO] Uruchamianie skanowania Mozaiki: {sample_w}x{sample_h}mm (Obiektyw: {fov_x}x{fov_y}mm, Zakładka {overlap}%)")
 
         def run_thread():
-            self.acquisition.scan_sequence(
+            self.acquisition.run_mosaic_scan(
                 platform=self.platform,
                 save_path=self.save_path,
                 starting_wavelength=start,
