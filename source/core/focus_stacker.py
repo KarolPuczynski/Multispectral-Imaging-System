@@ -51,7 +51,7 @@ def _lap_focus_stacking(images, N=5, kernel_size=5, bit_depth=10):
     LP_N = np.zeros_like(bases[0])
     
     H, W = cond_max.shape
-    I, J = np.ogrid[:H, :W]
+    I, J = np.rd[:H, :W]
     
     LP_N[cond_max] = bases[D_max_idx[cond_max], I[cond_max], J[cond_max]]
     LP_N[cond_min] = bases[D_min_idx[cond_min], I[cond_min], J[cond_min]]
