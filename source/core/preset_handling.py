@@ -3,7 +3,6 @@ import os
 
 class PresetManager:
     def __init__(self, json_path):
-        self.json_path = f"source/data/{json_path}"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.json_path = os.path.join(base_dir, "data", json_path)
         self.presets = {}
