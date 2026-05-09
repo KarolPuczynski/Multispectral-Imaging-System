@@ -1,7 +1,9 @@
+import queue
 import threading
 import time
+
 import serial
-import queue
+
 
 class GrblClient:
     def __init__(self, port="COM7", baud=115200, timeout=1.0):
@@ -10,37 +12,104 @@ class GrblClient:
         self.timeout = timeout
         self.ser = None
         self.lock = threading.Lock()
-        
+
         self.command_queue = queue.Queue()
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker_thread.start()
 
     def connect(self):
         if self.ser and self.ser.is_open:
-            return
+            if self.is_connected():
+                return True
+            self.disconnect()
 
         try:
             self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
-        except serial.SerialException as e:
-            print(f"[GRBL] Błąd otwarcia portu {self.port}: {e}")
-            return
+        except (serial.SerialException, OSError) as e:
+            print(f"[GRBL] Blad otwarcia portu {self.port}: {e}")
+            self.ser = None
+            return False
 
         time.sleep(2.0)
 
-        self.ser.reset_input_buffer()
-        self.ser.reset_output_buffer()
+        try:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
 
-        self.ser.write(b"\r\n\r\n")
-        self.ser.flush()
-        time.sleep(0.2)
-        self.ser.reset_input_buffer()
-        print(f"[GRBL] Połączono z GRBL na porcie {self.port}")
+            self.ser.write(b"\r\n\r\n")
+            self.ser.flush()
+            time.sleep(0.2)
+            self.ser.reset_input_buffer()
+            print(f"[GRBL] Polaczono z GRBL na porcie {self.port}")
+            return True
+        except (serial.SerialException, OSError) as e:
+            print(f"[GRBL] Blad inicjalizacji portu {self.port}: {e}")
+            self.disconnect()
+            return False
 
     def disconnect(self):
         if self.ser and self.ser.is_open:
-            self.ser.close()
+            try:
+                self.ser.close()
+            except (serial.SerialException, OSError):
+                pass
         self.ser = None
-        print("[GRBL] Rozłączono z GRBL")
+        print("[GRBL] Rozlaczono z GRBL")
+
+    def force_stop(self):
+        if not self.ser or not self.ser.is_open:
+            return
+
+        try:
+            self._clear_command_queue()
+
+            lock_acquired = self.lock.acquire(blocking=False)
+            try:
+                # GRBL realtime: feed hold, then soft reset. Soft reset also stops spindle/laser output.
+                self.ser.write(b"!\x18")
+                self.ser.flush()
+                time.sleep(0.1)
+                self.ser.reset_input_buffer()
+            finally:
+                if lock_acquired:
+                    self.lock.release()
+        except (serial.SerialException, OSError) as e:
+            print(f"[GRBL] Blad awaryjnego zatrzymania: {e}")
+            self.disconnect()
+
+    def _clear_command_queue(self):
+        while True:
+            try:
+                self.command_queue.get_nowait()
+                self.command_queue.task_done()
+            except queue.Empty:
+                break
+
+    def is_connected(self) -> bool:
+        if not self.ser or not self.ser.is_open:
+            return False
+
+        try:
+            with self.lock:
+                self.ser.write(b"?")
+                self.ser.flush()
+
+                deadline = time.time() + 0.5
+                while time.time() < deadline:
+                    raw = self.ser.readline()
+                    if not raw:
+                        continue
+
+                    status = raw.decode("ascii", errors="ignore").strip()
+                    if status.startswith("<") and status.endswith(">"):
+                        return True
+
+            print("[GRBL] Brak odpowiedzi statusowej z GRBL.")
+            return False
+        except (serial.SerialException, OSError):
+            print("[GRBL] Utracono polaczenie z GRBL.")
+            self.disconnect()
+            return False
 
     def _worker_loop(self):
         while True:
@@ -49,14 +118,14 @@ class GrblClient:
                 self.send_line_blocking(command)
                 self.command_queue.task_done()
             except Exception as e:
-                print(f"[GRBL] Błąd w wątku GRBL: {e}")
+                print(f"[GRBL] Blad w watku GRBL: {e}")
 
     def send_line_async(self, line: str):
         self.command_queue.put(line)
 
     def send_line_blocking(self, line: str, wait_ok=True) -> str:
         if not self.ser or not self.ser.is_open:
-            print("[GRBL] Błąd: Brak połączenia. Komenda zignorowana.")
+            print("[GRBL] Blad: Brak polaczenia. Komenda zignorowana.")
             return ""
 
         cmd = line.strip()
@@ -64,8 +133,13 @@ class GrblClient:
             return ""
 
         with self.lock:
-            self.ser.write((cmd + "\n").encode("ascii", errors="ignore"))
-            self.ser.flush()
+            try:
+                self.ser.write((cmd + "\n").encode("ascii", errors="ignore"))
+                self.ser.flush()
+            except (serial.SerialException, OSError) as e:
+                print(f"[GRBL] Blad wysylania komendy. Utracono polaczenie: {e}")
+                self.disconnect()
+                return ""
 
             if not wait_ok:
                 return ""
@@ -74,7 +148,13 @@ class GrblClient:
             deadline = time.time() + 3.0
 
             while time.time() < deadline:
-                raw = self.ser.readline()
+                try:
+                    raw = self.ser.readline()
+                except (serial.SerialException, OSError) as e:
+                    print(f"[GRBL] Blad odczytu. Utracono polaczenie: {e}")
+                    self.disconnect()
+                    return "\n".join(lines)
+
                 if not raw:
                     continue
 
@@ -91,24 +171,28 @@ class GrblClient:
 
     def realtime(self, ch: bytes):
         if not self.ser or not self.ser.is_open:
-            raise RuntimeError("Nie połączono z Arduino (COM).")
+            raise RuntimeError("Nie polaczono z Arduino (COM).")
         with self.lock:
-            self.ser.write(ch)
-            self.ser.flush()
+            try:
+                self.ser.write(ch)
+                self.ser.flush()
+            except (serial.SerialException, OSError):
+                self.disconnect()
+                raise
 
     def stream_gcode(self, gcode_path):
         print(f"[GRBL] Streaming pliku G-code: {gcode_path}")
         try:
             with open(gcode_path, "r") as file:
                 for line in file:
-                    if ';' in line:
-                        line = line[:line.index(';')]
+                    if ";" in line:
+                        line = line[:line.index(";")]
                     cleaned = line.strip()
 
                     if cleaned:
-                        print(f"[GRBL] Wysyłanie: {cleaned}")
+                        print(f"[GRBL] Wysylanie: {cleaned}")
                         response = self.send_line_blocking(cleaned)
-                        print(f"[GRBL] Odpowiedź: {response}")
-            print("[GRBL] Zakończono wysyłanie pliku G-code")
+                        print(f"[GRBL] Odpowiedz: {response}")
+            print("[GRBL] Zakonczono wysylanie pliku G-code")
         except FileNotFoundError:
-            print(f"[GRBL] Błąd: Nie znaleziono pliku {gcode_path}")
+            print(f"[GRBL] Blad: Nie znaleziono pliku {gcode_path}")

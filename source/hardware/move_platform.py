@@ -22,7 +22,21 @@ class Platform:
         self.platform_center = (40.0, 22.5)
 
     def connect(self):
-        self.grbl.connect()
+        return self.grbl.connect()
+
+    def disconnect(self):
+        self.grbl.disconnect()
+        self.is_ready = False
+
+    def force_stop_and_disconnect(self):
+        self.grbl.force_stop()
+        self.disconnect()
+
+    def is_connected(self):
+        connected = self.grbl.is_connected()
+        if not connected:
+            self.is_ready = False
+        return connected
 
     def homing(self):
         self.grbl.send_line_async('$H')

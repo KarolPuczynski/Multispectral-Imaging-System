@@ -1,20 +1,29 @@
 from PyQt6.QtWidgets import QLabel, QSizePolicy
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtCore import QTimer, Qt, QSize
+from PyQt6.QtGui import QPixmap
 from PIL import ImageQt
 import queue
+
+
 class LiveViewWidget(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("background-color: black;")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(480, 360)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
         self.image_queue = None
         self._is_running = False
-        
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._update_loop)
+
+    def sizeHint(self):
+        return QSize(800, 600)
+
+    def minimumSizeHint(self):
+        return QSize(480, 360)
 
     def start_live_view(self, new_image_queue):
         self.image_queue = new_image_queue
@@ -37,8 +46,12 @@ class LiveViewWidget(QLabel):
 
             qim = ImageQt.ImageQt(image)
             pixmap = QPixmap.fromImage(qim)
-            
-            scaled_pixmap = pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+
+            scaled_pixmap = pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
             self.setPixmap(scaled_pixmap)
 
         except queue.Empty:

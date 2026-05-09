@@ -36,13 +36,17 @@ class App(QMainWindow):
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self.refresh_live_parameters)
 
+        self.platform_connection_timer = QTimer(self)
+        self.platform_connection_timer.timeout.connect(self.check_platform_connection)
+        self.platform_connection_timer.start(2000)
+
 
     def init_logic_modules(self):
         self.acquisition = Acquisition()
         self.presets = PresetManager("presets.json")
         self.oculars = PresetManager("oculars.json")
         self.platform = Platform()
-        self.pwm_controller = LedController(port="COM6")
+        self.pwm_controller = LedController(self.platform.grbl)
         self.bandwidth_modes = {"Wide": 2, "Medium": 4, "Narrow": 8}
 
     def init_ui(self):
@@ -79,22 +83,22 @@ class App(QMainWindow):
             btn.clicked.connect(command)
             layout.addWidget(btn)
 
+        btn_disconnect_platform = QPushButton("Rozłącz")
+        btn_disconnect_platform.clicked.connect(self.disconnect_platform_action)
+        layout.addWidget(btn_disconnect_platform)
+
         # Statusy polaczania kamery i filtra
-        self.cam_status_label = QLabel("Kamera: Rozłączona")
-        self.cam_status_label.setStyleSheet("color: red")
+        self.cam_status_label = QLabel()
+        self.set_connection_status(self.cam_status_label, "Kamera", False)
         layout.addWidget(self.cam_status_label)
 
-        self.kur_status_label = QLabel("KURIOS: Rozłączony")
-        self.kur_status_label.setStyleSheet("color: red")
+        self.kur_status_label = QLabel()
+        self.set_connection_status(self.kur_status_label, "KURIOS", False)
         layout.addWidget(self.kur_status_label)
 
-        self.platform_status_label = QLabel("Platforma: Rozłączona")
-        self.platform_status_label.setStyleSheet("color: red")
+        self.platform_status_label = QLabel()
+        self.set_connection_status(self.platform_status_label, "Platforma", False)
         layout.addWidget(self.platform_status_label)
-
-        self.pwm_status_label = QLabel("PWM: Rozłączony")
-        self.pwm_status_label.setStyleSheet("color: red")
-        layout.addWidget(self.pwm_status_label)
 
         layout.addWidget(self._create_manual_controls())
 
@@ -469,23 +473,51 @@ class App(QMainWindow):
     def connect(self):
         success = self.acquisition.connect_hardware()
         if success:
-            self.cam_status_label.setText("Kamera: POŁĄCZONA")
-            self.cam_status_label.setStyleSheet("color: green")
+            self.set_connection_status(self.cam_status_label, "Kamera", True)
+            self.set_connection_status(self.kur_status_label, "KURIOS", True)
 
-            self.kur_status_label.setText("KURIOS: POŁĄCZONY")
-            self.kur_status_label.setStyleSheet("color: green")
-
-        self.platform.connect()
-        if self.platform.grbl.ser and self.platform.grbl.ser.is_open:
-            self.platform_status_label.setText("Platforma: POŁĄCZONA")
-            self.platform_status_label.setStyleSheet("color: green")
-
-        self.pwm_controller.connect()
-        if self.pwm_controller.connected:
-            self.pwm_status_label.setText("PWM: POŁĄCZONY")
-            self.pwm_status_label.setStyleSheet("color: green")
+        if self.platform.connect():
+            self.set_platform_status(True)
+        else:
+            self.set_platform_status(False)
 
         self.adjust_lighting()
+
+    def set_connection_status(self, label, name, connected):
+        state_text = "połączona" if connected else "rozłączona"
+        color = "#167a2f" if connected else "#b00020"
+        label.setText(f"{name}: {state_text}")
+        label.setStyleSheet(f"color: {color}; font-weight: 600;")
+
+    def set_platform_status(self, connected):
+        if connected:
+            self.set_connection_status(self.platform_status_label, "Platforma", True)
+        else:
+            self.set_connection_status(self.platform_status_label, "Platforma", False)
+
+    def disconnect_platform_action(self):
+        self.platform.force_stop_and_disconnect()
+        self.set_platform_status(False)
+        self.label_pwm_val.setText("PWM: 0")
+        if hasattr(self, "pwm_slider"):
+            self.pwm_slider.blockSignals(True)
+            self.pwm_slider.setValue(0)
+            self.pwm_slider.blockSignals(False)
+
+    def check_platform_connection(self):
+        if self.platform.grbl.ser is None:
+            self.set_platform_status(False)
+            return
+
+        self.set_platform_status(self.platform.is_connected())
+
+    def ensure_platform_connected(self):
+        if self.platform.is_connected():
+            return True
+
+        self.set_platform_status(False)
+        QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+        return False
 
     def refresh_live_parameters(self):
         wavelength = self.spin_wavelength.value()
@@ -534,6 +566,11 @@ class App(QMainWindow):
             QMessageBox.warning(self, "Błąd", "Nie wybrano obiektywu do mapowania!")
             return None
 
+        if not self.platform.is_connected():
+            self.set_platform_status(False)
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!")
+            return None
+
         if not self.platform.is_ready:
             QMessageBox.warning(self, "Błąd", "Platforma nie jest gotowa. Wykonaj Homing lub Unlock.")
             return None
@@ -547,6 +584,11 @@ class App(QMainWindow):
         }
 
     def _ensure_platform_for_focus_stack(self):
+        if self.check_use_focus_stack.isChecked() and not self.platform.is_connected():
+            self.set_platform_status(False)
+            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona. Kliknij 'Połącz' przed focus stackingiem.")
+            return False
+
         if self.check_use_focus_stack.isChecked() and not self.platform.is_ready:
             QMessageBox.warning(self, "Błąd", "Platforma nie jest gotowa. Wykonaj Homing lub Unlock przed focus stackingiem.")
             return False
@@ -657,8 +699,7 @@ class App(QMainWindow):
             self.edit_save_path.setText(self.save_path)
 
     def validate_and_move(self, axis, direction):
-        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
-            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+        if not self.ensure_platform_connected():
             return
 
         if not self.platform.is_ready:
@@ -680,8 +721,7 @@ class App(QMainWindow):
 
     # homing platformy
     def platform_homing(self):
-        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
-            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+        if not self.ensure_platform_connected():
             return
 
         self.platform.homing()
@@ -689,15 +729,13 @@ class App(QMainWindow):
 
     # Odblokowanie platformy (domyslnie po wlaczeniu jest zablokowana, i wtedy można tylko ja homingowac)
     def platform_unlock(self):
-        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
-            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+        if not self.ensure_platform_connected():
             return
 
         self.platform.unlock()
 
     def platform_move_to_center(self):
-        if not self.platform.grbl.ser or not self.platform.grbl.ser.is_open:
-            QMessageBox.warning(self, "Błąd", "Platforma nie jest połączona!\nProszę kliknąć przycisk 'Połącz'.")
+        if not self.ensure_platform_connected():
             return
 
         if not self.platform.is_ready:
@@ -938,11 +976,15 @@ class App(QMainWindow):
     # zamykamy okkno jak i ODLACZAMY KAMERE I FILTR
     def on_close(self, event=None):
         print("[INFO] Zamykanie aplikacji i zwalnianie zasobów...")
+        if hasattr(self, 'platform_connection_timer'):
+            self.platform_connection_timer.stop()
         if hasattr(self, 'acquisition'):
             self.acquisition.cleanup()
         if hasattr(self, 'pwm_controller'):
             self.pwm_controller.set_pwm(0)
             self.pwm_controller.close()
+        if hasattr(self, 'platform'):
+            self.platform.disconnect()
 
         if event:
             event.accept()
