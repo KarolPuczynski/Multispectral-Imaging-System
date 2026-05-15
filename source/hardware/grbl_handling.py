@@ -123,7 +123,7 @@ class GrblClient:
     def send_line_async(self, line: str):
         self.command_queue.put(line)
 
-    def send_line_blocking(self, line: str, wait_ok=True) -> str:
+    def send_line_blocking(self, line: str, wait_ok=True, timeout: float = 3.0) -> str:
         if not self.ser or not self.ser.is_open:
             print("[GRBL] Blad: Brak polaczenia. Komenda zignorowana.")
             return ""
@@ -145,7 +145,7 @@ class GrblClient:
                 return ""
 
             lines = []
-            deadline = time.time() + 3.0
+            deadline = time.time() + timeout
 
             while time.time() < deadline:
                 try:

@@ -39,10 +39,18 @@ class Platform:
         return connected
 
     def homing(self):
-        self.grbl.send_line_async('$H')
+        self.is_ready = False
         self.x_state = 0.0
         self.y_state = 0.0
         self.z_state = 0.0
+        # $H can take 15-60 s depending on machine size; use a long timeout so we
+        # actually wait for the "ok" that signals the cycle has finished.
+        print("[Platform] Uruchamianie procedury homing ($H)...")
+        response = self.grbl.send_line_blocking('$H', timeout=120.0)
+        print(f"[Platform] Odpowiedz $H: {response!r}")
+        # After homing GRBL goes to Idle, but send $X as a safety unlock in case
+        # the cycle ended with a soft-alarm (e.g. hard-limit tripped on deceleration).
+        self.grbl.send_line_blocking('$X', timeout=5.0)
         self.is_ready = True
 
     def unlock(self):
