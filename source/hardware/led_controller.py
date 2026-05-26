@@ -1,4 +1,7 @@
 class LedController:
+    """
+    A class responsible for controlling the LED illumination through a GRBL-controlled PWM output.
+    """
     def __init__(self, grbl_client, input_max=255, spindle_max=1000):
         self.grbl = grbl_client
         self.input_max = input_max

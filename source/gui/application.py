@@ -1,18 +1,13 @@
 import sys
 import os
 import threading
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QComboBox,
-    QLineEdit, QSlider, QCheckBox, QGroupBox, QTabWidget,
-    QFileDialog, QMessageBox, QFrame, QSizePolicy, QSplitter
-)
+from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG
 from PyQt6.QtGui import QFont
 
-from core.acquisition import Acquisition
+from core.acquisition import Acquisition, AcquisitionParams
 from core.preset_handling import PresetManager
-from hardware.move_platform import Platform
+from hardware.platform import Platform
 from hardware.led_controller import LedController
 from gui.live_view import LiveViewWidget
 from gui.advanced_mode import AdvancedSettingsDialog
@@ -281,7 +276,11 @@ def _section_label(text):
 
 
 class App(QMainWindow):
-
+    """
+    Main application window for the Multispectral Imaging System. 
+    It initializes the GUI, manages the state of the application, 
+    and coordinates interactions between the acquisition logic, preset management, platform control, and live view display.
+    """
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Multispectral System")
@@ -290,11 +289,6 @@ class App(QMainWindow):
         self.setMinimumSize(1100, 650)
 
         self.save_path = os.getcwd()
-
-        self.init_logic_modules()
-        self.init_ui()
-        self.update_image_format_controls()
-
         self.preset_name = None
         self.preset_mode = None
         self.preset_start_wavelength = None
@@ -311,6 +305,10 @@ class App(QMainWindow):
         self.platform_connection_timer = QTimer(self)
         self.platform_connection_timer.timeout.connect(self.check_platform_connection)
         self.platform_connection_timer.start(2000)
+
+        self.init_logic_modules()
+        self.init_ui()
+        self.update_image_format_controls()
 
     def init_logic_modules(self):
         self.acquisition = Acquisition()
@@ -426,10 +424,10 @@ class App(QMainWindow):
         param_grid.addWidget(self.spin_exposure, 1, 1)
 
         param_grid.addWidget(QLabel("Gain"), 2, 0)
-        self.spin_gain = QDoubleSpinBox()
-        self.spin_gain.setRange(0.0, 48.0)
-        self.spin_gain.setSingleStep(0.1)
-        self.spin_gain.setValue(0.0)
+        self.spin_gain = QSpinBox()
+        self.spin_gain.setRange(0, 48)
+        self.spin_gain.setSingleStep(1)
+        self.spin_gain.setValue(0)
         self.spin_gain.valueChanged.connect(self.trigger_hardware_update)
         param_grid.addWidget(self.spin_gain, 2, 1)
 
@@ -907,11 +905,13 @@ class App(QMainWindow):
         return False
 
     def refresh_live_parameters(self):
-        wavelength = self.spin_wavelength.value()
-        exposure = self.spin_exposure.value()
-        gain = self.spin_gain.value()
-        bandwidth_name = self.combo_bandwidth.currentText()
-        self.acquisition.set_hardware_params(wavelength, exposure, bandwidth_name, gain)
+        params = AcquisitionParams(
+            wavelength=self.spin_wavelength.value(),
+            exposure=self.spin_exposure.value(),
+            gain=self.spin_gain.value(),
+            bandwidth_mode=self.combo_bandwidth.currentText()
+        )
+        self.acquisition.set_hardware_params(params)
 
     def trigger_hardware_update(self):
         self.debounce_timer.start(300)
@@ -973,11 +973,6 @@ class App(QMainWindow):
             return False
         return True
 
-    def _stop_live_if_needed(self, reason):
-        if self.acquisition.camera_connected and self.acquisition.camera.is_live:
-            print(f"[INFO] Zatrzymywanie Live View przed {reason}...")
-            self.stop_live_view_action()
-
     def _update_position_label_queued(self):
         pos_text = f"X={self.platform.x_state:.2f}  Y={self.platform.y_state:.2f}  Z={self.platform.z_state:.2f} mm"
         QMetaObject.invokeMethod(
@@ -997,21 +992,11 @@ class App(QMainWindow):
         geometry = self._get_selected_sample_geometry()
         return geometry or None
 
-    def _run_acquisition_thread(self, spectral_scan, image_format, focus_stack_params, geometry, **kwargs):
+    def _run_acquisition_thread(self, params: AcquisitionParams):
         def run_thread():
             self.acquisition.run_acquisition(
                 platform=self.platform,
-                save_path=self.save_path,
-                spectral_scan=spectral_scan,
-                mapping=self.check_use_mapping.isChecked(),
-                focus_stack_params=focus_stack_params,
-                sample_width=geometry.get("sample_width"),
-                sample_height=geometry.get("sample_height"),
-                fov_x=geometry.get("fov_x"),
-                fov_y=geometry.get("fov_y"),
-                overlap=geometry.get("overlap"),
-                image_format=image_format,
-                **kwargs
+                params=params
             )
             self._update_position_label_queued()
 
@@ -1019,9 +1004,13 @@ class App(QMainWindow):
         acquisition_thread.start()
 
     def capture_image(self):
-        self._stop_live_if_needed("wykonaniem zdjęcia")
+
+        if self.acquisition.camera_connected and self.acquisition.camera.is_live:
+            self.stop_live_view_action()
+
         if not self._ensure_platform_for_focus_stack():
             return
+        
         if self.check_use_mapping.isChecked() or self.check_use_focus_stack.isChecked():
             image_format = self._force_tiff_output()
         else:
@@ -1031,23 +1020,30 @@ class App(QMainWindow):
         if geometry is None:
             return
         bandwidth_name = self.combo_bandwidth.currentText()
-        self._run_acquisition_thread(
-            spectral_scan=False,
+        
+        params = AcquisitionParams(
+            save_path=self.save_path,
             image_format=image_format,
-            focus_stack_params=focus_stack_params,
-            geometry=geometry,
             wavelength=self.spin_wavelength.value(),
             exposure=self.spin_exposure.value(),
             gain=self.spin_gain.value(),
             bandwidth_mode=bandwidth_name,
-            bandwidth_code=self.bandwidth_modes.get(bandwidth_name, 4)
+            bandwidth_code=self.bandwidth_modes.get(bandwidth_name, 4),
+            spectral_scan=False,
+            mapping=self.check_use_mapping.isChecked(),
+            focus_stack_params=focus_stack_params,
+            **(geometry if geometry else {})
         )
+        self._run_acquisition_thread(params)
 
     def start_scan(self):
         if not self.preset_start_wavelength:
             QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu skanowania!")
             return
-        self._stop_live_if_needed("rozpoczęciem skanowania")
+        
+        if self.acquisition.camera_connected and self.acquisition.camera.is_live:
+            self.stop_live_view_action()
+
         if not self._ensure_platform_for_focus_stack():
             return
         image_format = self._force_tiff_output()
@@ -1055,17 +1051,23 @@ class App(QMainWindow):
         geometry = self._get_acquisition_geometry_if_needed()
         if geometry is None:
             return
-        self._run_acquisition_thread(
-            spectral_scan=True,
+            
+        params = AcquisitionParams(
+            save_path=self.save_path,
             image_format=image_format,
-            focus_stack_params=focus_stack_params,
-            geometry=geometry,
+            spectral_scan=True,
+            wavelength=self.spin_wavelength.value(),
             starting_wavelength=self.preset_start_wavelength,
             ending_wavelength=self.preset_end_wavelength,
             step=self.preset_step,
             bandwidth_mode=self.preset_mode,
-            gain=self.spin_gain.value()
+            gain=self.spin_gain.value(),
+            exposure=self.spin_exposure.value(),
+            mapping=self.check_use_mapping.isChecked(),
+            focus_stack_params=focus_stack_params,
+            **(geometry if geometry else {})
         )
+        self._run_acquisition_thread(params)
 
     def select_save_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Wybierz folder do zapisu", self.save_path)

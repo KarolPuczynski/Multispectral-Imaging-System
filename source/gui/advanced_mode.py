@@ -169,6 +169,11 @@ def _section_label(text):
 
 
 class AdvancedSettingsDialog(QDialog):
+    """
+    A dialog window for advanced settings related to GRBL configuration and direct G-CODE command input.
+    It allows users to select and save the COM port for the platform and PWM controller,
+    and provides a console interface to send commands directly to GRBL and view responses. 
+    """
     def __init__(self, parent=None, platform=None, pwm_controller=None):
         super().__init__(parent)
         self.setWindowTitle("Ustawienia zaawansowane — konsola GRBL")

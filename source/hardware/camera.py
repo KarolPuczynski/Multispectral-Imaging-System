@@ -12,32 +12,19 @@ except ImportError:
     pass
 
 from thorlabs_tsi_sdk.tl_camera import TLCameraSDK
-from thorlabs_tsi_sdk.tl_camera_enums import SENSOR_TYPE
-from thorlabs_tsi_sdk.tl_mono_to_color_processor import MonoToColorProcessorSDK
 
 DEFAULT_GAIN = 1
 
 class ImageAcquisitionThread(threading.Thread):
+    """
+    Class inspired by Thorlabs example code for live view acquisition. 
+    It runs in a separate thread to continuously poll the camera for new frames,
+    processes them, and puts the resulting images into a queue for display in the live view widget.
+    """
     def __init__(self, camera):
         super(ImageAcquisitionThread, self).__init__()
         self._camera = camera
         self._previous_timestamp = 0
-
-        # setup color processing
-        if self._camera.camera_sensor_type != SENSOR_TYPE.BAYER:
-            self._is_color = False
-        else:
-            self._mono_to_color_sdk = MonoToColorProcessorSDK()
-            self._image_width = self._camera.image_width_pixels
-            self._image_height = self._camera.image_height_pixels
-            self._mono_to_color_processor = self._mono_to_color_sdk.create_mono_to_color_processor(
-                SENSOR_TYPE.BAYER,
-                self._camera.color_filter_array_phase,
-                self._camera.get_color_correction_matrix(),
-                self._camera.get_default_white_balance_matrix(),
-                self._camera.bit_depth
-            )
-            self._is_color = True
 
         self._bit_depth = camera.bit_depth
         self._camera.image_poll_timeout_ms = 0
@@ -50,19 +37,6 @@ class ImageAcquisitionThread(threading.Thread):
     def stop(self):
         self._stop_event.set()
 
-    def _get_color_image(self, frame):
-        width = frame.image_buffer.shape[1]
-        height = frame.image_buffer.shape[0]
-        if (width != self._image_width) or (height != self._image_height):
-            self._image_width = width
-            self._image_height = height
-
-        color_image_data = self._mono_to_color_processor.transform_to_24(
-            frame.image_buffer, self._image_width, self._image_height
-        )
-        color_image_data = color_image_data.reshape(self._image_height, self._image_width, 3)
-        return Image.fromarray(color_image_data, mode='RGB')
-
     def _get_image(self, frame):
         scaled_image = (frame.image_buffer >> (self._bit_depth - 8)).astype(np.uint8)
         return Image.fromarray(scaled_image)
@@ -72,10 +46,7 @@ class ImageAcquisitionThread(threading.Thread):
             try:
                 frame = self._camera.get_pending_frame_or_null()
                 if frame is not None:
-                    if self._is_color:
-                        pil_image = self._get_color_image(frame)
-                    else:
-                        pil_image = self._get_image(frame)
+                    pil_image = self._get_image(frame)
                     self._image_queue.put_nowait(pil_image)
             except queue.Full:
                 pass
@@ -83,13 +54,15 @@ class ImageAcquisitionThread(threading.Thread):
                 print(f"[CAM] Error in acquisition thread: {error}")
                 break
 
-        if self._is_color:
-            self._mono_to_color_processor.dispose()
-            self._mono_to_color_sdk.dispose()
         print("[CAM] Image acquisition thread stopped.")
 
 
 class ThorlabsCamera:
+    """
+    Class responsible for managing the connection to the Thorlabs camera, 
+    performing image captures, and handling live view functionality. 
+    It uses the Thorlabs TSI SDK to interface with the camera hardware
+    """
     def __init__(self, exposure_us=10000):
         self.sdk = TLCameraSDK()
         cameras = self.sdk.discover_available_cameras()
@@ -99,13 +72,11 @@ class ThorlabsCamera:
         self.camera = self.sdk.open_camera(cameras[0])
         self.camera.exposure_time_us = exposure_us
 
-        # Ustawienia domyślne gain
         if hasattr(self.camera, "gain"):
-            self.camera.gain = DEFAULT_GAIN
+            self.camera.gain = int(DEFAULT_GAIN)
         elif hasattr(self.camera, "analog_gain"):
-            self.camera.analog_gain = DEFAULT_GAIN
+            self.camera.analog_gain = int(DEFAULT_GAIN)
 
-        # Zmienne do Live View
         self.live_thread = None
         self.is_live = False
 

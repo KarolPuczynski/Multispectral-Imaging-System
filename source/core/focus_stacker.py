@@ -1,7 +1,25 @@
 import numpy as np
 import cv2
 
-def stack(frames, hypercube_scanning=False, gaussian_kernel=5, laplacian_kernel=5, bit_depth=10):
+def stack(frames, hypercube_scanning=False, gaussian_kernel=5, bit_depth=10):
+    """
+    Performs focus stacking on a sequence of frames. 
+    The principle of the algorithm is based on Laplacian pyramid decomposition, where the focus measure is calculated using a combination of local deviation and entropy.
+
+    Parameters:
+    - frames: A list of frames to be stacked. 
+    - hypercube_scanning: A boolean indicating if the input frames are from a hypercube scan (multiple wavelengths).
+    - gaussian_kernel: The kernel size for the Gaussian blur used in deviation and entropy calculations.
+    - bit_depth: The bit depth of the input images (e.g., 8 or 10). This is used to ensure proper scaling and clipping of the output.
+
+    Returns:
+    - If hypercube_scanning is False: A single stacked frame resulting from the focus stacking process.
+    - If hypercube_scanning is True: A list of dictionaries, each containing the stacked frame data and associated metadata (wavelength and exposure time).
+    """
+    frames = [f for f in frames if f is not None]
+    if not frames:
+        return None
+
     if hypercube_scanning:
         num_wavelengths = len(frames[0])
         stacked_sequence = []
@@ -9,9 +27,16 @@ def stack(frames, hypercube_scanning=False, gaussian_kernel=5, laplacian_kernel=
         for w in range(num_wavelengths):
             w_frames = []
             for z in range(len(frames)):
-                w_frames.append(frames[z][w]["frame_data"])
+                if len(frames[z]) > w and frames[z][w] is not None:
+                    w_frames.append(frames[z][w]["frame_data"])
                 
-            stacked_frame = _lap_focus_stacking(w_frames, N=5, kernel_size=gaussian_kernel, bit_depth=bit_depth)
+            if not w_frames:
+                continue
+
+            if len(w_frames) < 2:
+                stacked_frame = w_frames[0]
+            else:
+                stacked_frame = _lap_focus_stacking(w_frames, N=5, kernel_size=gaussian_kernel, bit_depth=bit_depth)
             
             frame_info = {
                 "frame_data": stacked_frame,
@@ -22,11 +47,16 @@ def stack(frames, hypercube_scanning=False, gaussian_kernel=5, laplacian_kernel=
             
         return stacked_sequence
     else:
+        if len(frames) < 2:
+            return frames[0]
+
         frame = _lap_focus_stacking(frames, N=5, kernel_size=gaussian_kernel, bit_depth=bit_depth)
         return frame
 
 
 def _lap_focus_stacking(images, N=5, kernel_size=5, bit_depth=10):
+    if not images:
+        return None
     input_dtype = images[0].dtype
     list_lap_pyramids = []
     for img in images:
@@ -51,7 +81,7 @@ def _lap_focus_stacking(images, N=5, kernel_size=5, bit_depth=10):
     LP_N = np.zeros_like(bases[0])
     
     H, W = cond_max.shape
-    I, J = np.rd[:H, :W]
+    I, J = np.mgrid[:H, :W]
     
     LP_N[cond_max] = bases[D_max_idx[cond_max], I[cond_max], J[cond_max]]
     LP_N[cond_min] = bases[D_min_idx[cond_min], I[cond_min], J[cond_min]]

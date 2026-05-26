@@ -6,6 +6,7 @@ import serial
 
 
 class GrblClient:
+    """Class rensponsible for managing the serial connection to the GRBL controller, sending G-CODE commands."""
     def __init__(self, port="COM7", baud=115200, timeout=1.0):
         self.port = port
         self.baud = baud

@@ -1,3 +1,7 @@
+"""
+Script taken from thorlabs_tsi_sdk repository, demonstrating how to grab a single frame from a Thorlabs TSI camera using the provided SDK.
+"""
+
 import numpy as np
 import os
 import cv2

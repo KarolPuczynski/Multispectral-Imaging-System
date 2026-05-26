@@ -2,6 +2,11 @@ from ctypes import *
 import os
 
 class Kurios:
+    """
+    A Python wrapper for the Kurios filter control library taken from Thorlabs code.
+    It provides methods to list connected devices, open and close connections,
+    get and set filter parameters, and manage sequences of filter settings for multispectral imaging.
+    """
     KuriosLib = None
     isLoad = False
 

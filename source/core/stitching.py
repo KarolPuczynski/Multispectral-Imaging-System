@@ -6,6 +6,11 @@ from PIL import Image
 
 
 class MosaicStitcher:
+    """
+    Class responsible for stitching a mosaic of tiles into a single hypercube TIFF. 
+    It reads the layout information from a JSON file, calculates the necessary canvas size, 
+    and blends the tiles together using a feathering mask to create smooth transitions between them
+    """
     def __init__(self, mosaic_folder_path):
         self.folder_path = mosaic_folder_path
         self.layout_file = os.path.join(self.folder_path, "mosaic_layout.json")
