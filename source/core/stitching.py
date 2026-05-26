@@ -105,17 +105,52 @@ class MosaicStitcher:
         output_path = os.path.join(self.folder_path, output_filename)
         print(f"[STITCHER] Zapisuje do wielostronicowego TIFF: {output_path}")
 
+        metadata_description = self._build_metadata_description(layout_data, num_wavelengths)
+
         try:
             final_frames_pil[0].save(
                 output_path,
                 save_all=True,
-                append_images=final_frames_pil[1:]
+                append_images=final_frames_pil[1:],
+                description=metadata_description,
             )
             print("[STITCHER] Zszywanie zakonczone sukcesem!")
             return True
         except Exception as e:
             print(f"[STITCHER] Blad podczas zapisu finalnego tiffa: {e}")
             return False
+
+    def _build_metadata_description(self, layout_data, num_wavelengths):
+        """Build JSON metadata (wavelength + exposure per frame) for TIFF ImageDescription."""
+        scan_params = layout_data.get("scan_parameters", {}) or {}
+        start = scan_params.get("start_wavelength_nm")
+        end = scan_params.get("end_wavelength_nm")
+        step = scan_params.get("step_nm") or 0
+        exposure_us = scan_params.get("exposure_us")
+
+        if num_wavelengths <= 1 or step <= 0 or start is None or end is None:
+            wavelengths = [start] * num_wavelengths
+        else:
+            wavelengths = list(range(int(start), int(end) + 1, int(step)))
+            if len(wavelengths) < num_wavelengths:
+                wavelengths += [end] * (num_wavelengths - len(wavelengths))
+            elif len(wavelengths) > num_wavelengths:
+                wavelengths = wavelengths[:num_wavelengths]
+
+        frames = {
+            i: {
+                "wavelength_nm": wavelengths[i],
+                "exposure_us": exposure_us,
+            }
+            for i in range(num_wavelengths)
+        }
+
+        metadata = {
+            "software": "Multispectral Imaging System",
+            "scan_parameters": scan_params,
+            "frames": frames,
+        }
+        return json.dumps(metadata, indent=4)
 
 
 if __name__ == "__main__":

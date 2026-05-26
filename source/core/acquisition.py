@@ -454,6 +454,7 @@ class Acquisition:
                 stitcher = MosaicStitcher(mosaic_dir)
                 if stitcher.stitch(stitch_filename):
                     print(f"[INFO] Zszyta mozaika znajduje sie w folderze: {mosaic_dir}")
+                    self._cleanup_intermediate_tiles(mosaic_dir, stitch_filename)
                 else:
                     print("[INFO] Zszywanie zakonczylo sie niepowodzeniem.")
 
@@ -487,6 +488,7 @@ class Acquisition:
             "step": params.step,
             "bandwidth_mode": params.bandwidth_mode,
             "gain": params.gain,
+            "exposure": params.exposure,
             "focus_stack_params": params.focus_stack_params
         }
 
@@ -552,6 +554,7 @@ class Acquisition:
             "step": 0,
             "bandwidth_mode": params.bandwidth_mode,
             "gain": params.gain,
+            "exposure": params.exposure,
             "focus_stack_params": params.focus_stack_params
         }
 
@@ -565,6 +568,21 @@ class Acquisition:
             stitch_filename="final_image_mosaic.tiff"
         )
 
+    def _cleanup_intermediate_tiles(self, mosaic_dir, stitch_filename):
+        """Remove tile_*.tiff files and the layout JSON after the final mosaic was produced."""
+        try:
+            for entry in os.listdir(mosaic_dir):
+                entry_path = os.path.join(mosaic_dir, entry)
+                if not os.path.isfile(entry_path):
+                    continue
+                if entry == stitch_filename:
+                    continue
+                if entry.startswith("tile_") or entry == "mosaic_layout.json":
+                    os.remove(entry_path)
+            print(f"[INFO] Usunieto posrednie kafelki, pozostawiono tylko {stitch_filename}.")
+        except Exception as e:
+            print(f"[INFO] Nie udalo sie usunac wszystkich plikow posrednich: {e}")
+
     def _save_tile_hypercube(self, captured_data, full_path):
         pil_images = [Image.fromarray(item["frame_data"].astype(np.uint16)) for item in captured_data]
         pil_images[0].save(full_path, save_all=True, append_images=pil_images[1:])
@@ -576,7 +594,7 @@ class Acquisition:
 
     def _save_mosaic_layout(self, mosaic_dir, sample_width, sample_height, fov_x, fov_y, overlap, tiles,
                             starting_wavelength, ending_wavelength, step, bandwidth_mode, gain,
-                            focus_stack_params=None):
+                            exposure=None, focus_stack_params=None):
         layout = {
             "sample_width": sample_width,
             "sample_height": sample_height,
@@ -589,6 +607,7 @@ class Acquisition:
                 "step_nm": step,
                 "bandwidth_mode": bandwidth_mode,
                 "gain": gain,
+                "exposure_us": exposure,
                 "focus_stack": focus_stack_params
             },
             "tiles": tiles
