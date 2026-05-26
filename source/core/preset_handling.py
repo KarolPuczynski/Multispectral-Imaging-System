@@ -2,6 +2,10 @@ import json
 import os
 
 class PresetManager:
+    """
+    Manages loading, saving, and deleting presets for acquisition parameters.
+    Presets are stored in a JSON file and can be accessed by name.
+    """
     def __init__(self, json_path):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.json_path = os.path.join(base_dir, "data", json_path)

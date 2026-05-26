@@ -6,11 +6,15 @@ from hardware.grbl_handling import GrblClient
 
 
 class Platform:
+    """
+    Class responsible for managing the motion platform, 
+    including connecting to the GRBL controller, performing homing, and executing movement commands while keeping track of the current position.
+    """
     def __init__(self):
         self.grbl = GrblClient()
         self.is_ready = False
 
-        # Zakres roboczy platformy w mm: (x, y, z).
+        # Platform working area limits in mm (X, Y, Z)
         self.platform_min = (0.0, 0.0, 0.0)
         self.platform_max = (80.0, 45.0, 100.0)
 
@@ -18,17 +22,39 @@ class Platform:
         self.y_state = 0.0
         self.z_state = 0.0
 
-        # Pozycja XY, w ktorej probka jest centralnie pod kamera.
+        # Position of the center of the platform in mm
         self.platform_center = (40.0, 22.5)
 
     def connect(self):
-        self.grbl.connect()
+        return self.grbl.connect()
+
+    def disconnect(self):
+        self.grbl.disconnect()
+        self.is_ready = False
+
+    def force_stop_and_disconnect(self):
+        self.grbl.force_stop()
+        self.disconnect()
+
+    def is_connected(self):
+        connected = self.grbl.is_connected()
+        if not connected:
+            self.is_ready = False
+        return connected
 
     def homing(self):
-        self.grbl.send_line_async('$H')
+        self.is_ready = False
         self.x_state = 0.0
         self.y_state = 0.0
         self.z_state = 0.0
+        # $H can take 15-60 s depending on machine size; use a long timeout so we
+        # actually wait for the "ok" that signals the cycle has finished.
+        print("[Platform] Uruchamianie procedury homing ($H)...")
+        response = self.grbl.send_line_blocking('$H', timeout=120.0)
+        print(f"[Platform] Odpowiedz $H: {response!r}")
+        # After homing GRBL goes to Idle, but send $X as a safety unlock in case
+        # the cycle ended with a soft-alarm (e.g. hard-limit tripped on deceleration).
+        self.grbl.send_line_blocking('$X', timeout=5.0)
         self.is_ready = True
 
     def unlock(self):
@@ -82,6 +108,10 @@ class Platform:
             self.y_state = self.platform_center[1]
 
     def move_to_position_blocking(self, target_x, target_y, feedrate=500):
+        """
+        Moves the platform to the specified (target_x, target_y) coordinates in millimeters, 
+        while ensuring that the target position is within the defined platform limits. 
+        """
         if target_x < self.platform_min[0] or target_x > self.platform_max[0] or \
                 target_y < self.platform_min[1] or target_y > self.platform_max[1]:
             print(f"[BLAD] Cel X:{target_x:.2f}, Y:{target_y:.2f} poza zakresem! RUCH ZABLOKOWANY.")

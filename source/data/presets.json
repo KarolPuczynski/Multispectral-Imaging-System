@@ -13,12 +13,6 @@
         "end_wavelength": 700,
         "step": 10
     },
-    "test3": {
-        "mode": "Normal",
-        "start_wavelength": 500,
-        "end_wavelength": 600,
-        "step": 10
-    },
     "default2": {
         "mode": "Medium",
         "start_wavelength": 500,

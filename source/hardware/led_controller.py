@@ -1,40 +1,39 @@
-import serial
-import time
-
 class LedController:
-    def __init__(self, port="COM6", baudrate=9600):
-        self.port = port
-        self.baudrate = baudrate
-        self.ser = None
+    """
+    A class responsible for controlling the LED illumination through a GRBL-controlled PWM output.
+    """
+    def __init__(self, grbl_client, input_max=255, spindle_max=1000):
+        self.grbl = grbl_client
+        self.input_max = input_max
+        self.spindle_max = spindle_max
         self.connected = False
 
     def connect(self):
+        self.connected = bool(self.grbl.ser and self.grbl.ser.is_open)
         if self.connected:
-            print("[PWM] Już połączono.")
-            return
-
-        try:
-            print(f"[PWM] Łączenie z sterownikiem światła na porcie {self.port}...")
-            self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
-            time.sleep(2.0)
-            self.connected = True
-            print(f"[PWM] Połączono pomyślnie.")
-        except Exception as e:
-            print(f"[PWM] Błąd połączenia: {e}")
-            self.connected = False
+            print("[PWM] Sterowanie oswietleniem przez GRBL aktywne.")
+        else:
+            print("[PWM] Brak polaczenia GRBL. PWM niedostepne.")
 
     def set_pwm(self, value):
-        if not self.connected or not self.ser:
+        if not self.grbl.ser or not self.grbl.ser.is_open:
+            self.connected = False
             return
 
         try:
-            command = f"{int(value)}\n"
-            self.ser.write(command.encode('ascii'))
+            value = max(0, min(self.input_max, int(value)))
+            spindle_value = round((value / self.input_max) * self.spindle_max)
+
+            if spindle_value <= 0:
+                self.grbl.send_line_async("M5")
+            else:
+                self.grbl.send_line_async(f"M3 S{spindle_value}")
+
+            self.connected = True
         except Exception as e:
-            print(f"[PWM] Błąd wysyłania komendy: {e}")
+            print(f"[PWM] Blad wysylania komendy GRBL PWM: {e}")
 
     def close(self):
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-            self.connected = False
-            print("[PWM] Rozłączono.")
+        self.set_pwm(0)
+        self.connected = False
+        print("[PWM] Wylaczono oswietlenie.")
