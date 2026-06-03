@@ -22,6 +22,7 @@ class MosaicStitcher:
         mask = np.minimum(dist_x, dist_y).astype(np.float32)
         if mask.max() > 0:
             mask /= mask.max()
+        mask = mask * mask * (3.0 - 2.0 * mask)    
         return mask
 
     def stitch(self, output_filename="final_hypercube.tiff"):
@@ -83,7 +84,7 @@ class MosaicStitcher:
                 tile_array = np.array(img).astype(np.float32)
 
                 pixel_x = int((tile["relative_x"] - min_x_mm) * ppm_x)
-                pixel_y = int((tile["relative_y"] - min_y_mm) * ppm_y)
+                pixel_y = int((max_y_mm - tile["relative_y"]) * ppm_y)
 
                 end_y = min(pixel_y + tile_h, final_canvas_h)
                 end_x = min(pixel_x + tile_w, final_canvas_w)

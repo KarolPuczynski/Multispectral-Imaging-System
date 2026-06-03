@@ -1422,7 +1422,7 @@ class App(QMainWindow):
         grid_o.addWidget(QLabel("Zakładka [%]"), 3, 0)
         self.spin_overlap = SpinBox()
         self.spin_overlap.setRange(0, 90)
-        self.spin_overlap.setValue(15)
+        self.spin_overlap.setValue(25)
         grid_o.addWidget(self.spin_overlap, 3, 1)
 
         layout.addLayout(grid_o)
@@ -1597,6 +1597,14 @@ class App(QMainWindow):
             Q_ARG(str, f"X={self.platform.x_state:.2f} mm   Y={self.platform.y_state:.2f} mm   Z={self.platform.z_state:.2f} mm")
         )
 
+    def _update_progress_queued(self, text):
+        if hasattr(self, 'progress_dialog') and self.progress_dialog is not None:
+            QMetaObject.invokeMethod(
+                self.progress_dialog, "setLabelText",
+                Qt.ConnectionType.QueuedConnection,
+                Q_ARG(str, text)
+            )
+
     def _get_acquisition_geometry_if_needed(self):
         if not self.check_use_mapping.isChecked():
             return {}
@@ -1604,12 +1612,25 @@ class App(QMainWindow):
         return geometry or None
 
     def _run_acquisition_thread(self, params: AcquisitionParams):
+        self.progress_dialog = QProgressDialog("Rozpoczynanie akwizycji...", "", 0, 0, self)
+        self.progress_dialog.setWindowTitle("Proszę czekać")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setWindowFlags(self.progress_dialog.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        self.progress_dialog.setCancelButton(None)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.show()
+
+        params.progress_callback = self._update_progress_queued
+
         def run_thread():
-            self.acquisition.run_acquisition(
-                platform=self.platform,
-                params=params
-            )
-            self._update_position_label_queued()
+            try:
+                self.acquisition.run_acquisition(
+                    platform=self.platform,
+                    params=params
+                )
+            finally:
+                self._update_position_label_queued()
+                QMetaObject.invokeMethod(self.progress_dialog, "accept", Qt.ConnectionType.QueuedConnection)
 
         acquisition_thread = threading.Thread(target=run_thread, daemon=True)
         acquisition_thread.start()
