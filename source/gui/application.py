@@ -1,9 +1,10 @@
+import json
 import sys
 import os
 import threading
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPainter, QPen, QColor
 
 from core.acquisition import Acquisition, AcquisitionParams
 from core.preset_handling import PresetManager
@@ -11,6 +12,9 @@ from hardware.platform import Platform
 from hardware.led_controller import LedController
 from gui.live_view import LiveViewWidget
 from gui.advanced_mode import AdvancedSettingsDialog
+
+
+SETTINGS_FILE = "gui/gui_settings.json"
 
 
 DARK_QSS = """
@@ -22,6 +26,39 @@ QWidget {
     color: #c8ccd4;
     font-size: 13px;
 }
+QWidget#titlebar {
+    background: #0a0c10;
+}
+QWidget#left_panel {
+    background: #0d0f14;
+    border-right: 1px solid #1e2128;
+}
+QWidget#center_panel {
+    background: #0a0c10;
+}
+QWidget#right_panel {
+    background: #0d0f14;
+    border-left: 1px solid #1e2128;
+}
+QWidget#controls_bar {
+    background: #0d0f14;
+    border-top: 1px solid #1e2128;
+}
+QLabel#app_title {
+    color: #e2e4ea;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    background: transparent;
+}
+QFrame#info_box, QFrame#ocular_box, QFrame#active_preset_box {
+    background: #181b22;
+    border: 1px solid #2a2d36;
+    border-radius: 5px;
+}
+QFrame#info_box QLabel, QFrame#ocular_box QLabel, QFrame#active_preset_box QLabel {
+    background: transparent;
+}
 QGroupBox {
     border: 1px solid #1e2128;
     border-radius: 6px;
@@ -29,7 +66,7 @@ QGroupBox {
     padding-top: 8px;
     font-size: 11px;
     font-weight: 500;
-    color: #444a58;
+    color: #c8ccd4;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
@@ -37,58 +74,86 @@ QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 6px;
-    color: #444a58;
+    color: #c8ccd4;
     font-size: 11px;
 }
 QPushButton {
-    background: transparent;
-    border: 1px solid #2a2d36;
+    background: #1a1d24;
+    border: 1px solid #3a3d46;
     border-radius: 5px;
     padding: 7px 16px;
-    color: #888d99;
+    color: #c8ccd4;
     font-size: 13px;
     min-height: 28px;
 }
 QPushButton:hover {
-    background: #181b22;
-    border-color: #3a3d46;
-    color: #c8ccd4;
+    background: #232730;
+    border-color: #4a4d56;
+    color: #ffffff;
 }
 QPushButton:pressed {
     background: #0d0f14;
 }
 QPushButton:disabled {
     color: #333640;
+    background: #14161c;
     border-color: #1e2128;
 }
-QPushButton#btn_connect {
+QPushButton#btn_connect:enabled {
     background: #0e2a3d;
-    border-color: #1a4a6b;
-    color: #5baee0;
-}
-QPushButton#btn_connect:hover {
-    background: #0f3350;
     border-color: #2060a0;
+    color: #7ec8f0;
+    font-weight: 500;
 }
-QPushButton#btn_scan {
+QPushButton#btn_connect:enabled:hover {
+    background: #0f3350;
+    border-color: #2d80c0;
+    color: #ffffff;
+}
+QPushButton#btn_disconnect:enabled {
+    background: #2a1515;
+    border-color: #6a2828;
+    color: #e05555;
+    font-weight: 500;
+}
+QPushButton#btn_disconnect:enabled:hover {
+    background: #331a1a;
+    border-color: #8a3535;
+    color: #ff7878;
+}
+QPushButton#btn_scan, QPushButton#btn_capture {
     background: #0d2620;
-    border-color: #1d5040;
+    border-color: #2d8070;
     color: #2dcaa5;
     font-weight: 500;
     padding: 9px 16px;
     min-height: 32px;
 }
-QPushButton#btn_scan:hover {
+QPushButton#btn_scan:hover, QPushButton#btn_capture:hover {
     background: #0f3028;
-    border-color: #2d8070;
+    border-color: #3da080;
+    color: #5eecc8;
 }
-QPushButton#btn_start_live {
+QPushButton#btn_start_live:enabled {
     background: #0d2620;
-    border-color: #1d5040;
+    border-color: #2d8070;
     color: #2dcaa5;
+    font-weight: 500;
 }
-QPushButton#btn_start_live:hover {
+QPushButton#btn_start_live:enabled:hover {
     background: #0f3028;
+    color: #5eecc8;
+}
+QPushButton#btn_stop_live:enabled {
+    background: #2a1515;
+    border-color: #6a2828;
+    color: #e05555;
+    font-weight: 500;
+}
+QPushButton#btn_stop_live:enabled:hover {
+    background: #331a1a;
+    border-color: #8a3535;
+    color: #ff7878;
 }
 QPushButton#btn_close {
     background: #2a1515;
@@ -112,83 +177,116 @@ QPushButton#btn_save:hover {
 QPushButton#btn_delete {
     background: #1a0d0d;
     border-color: #3d1e1e;
-    color: #7a3535;
+    color: #c05050;
     padding: 5px 8px;
     font-size: 12px;
 }
 QPushButton#btn_delete:hover {
     background: #2a1515;
     border-color: #6a2828;
-    color: #c05050;
+    color: #e05555;
 }
 QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox {
-    background: #181b22;
-    border: 1px solid #2a2d36;
-    border-radius: 4px;
-    padding: 5px 8px;
-    color: #9ee4c8;
+    background: #1a1d24;
+    border: 1px solid #4a4d56;
+    border-radius: 5px;
+    padding: 4px 8px;
+    color: #ffffff;
     font-family: "Consolas", "Courier New", monospace;
     font-size: 13px;
-    min-height: 28px;
-    min-width: 70px;
+    min-height: 32px;
+    min-width: 80px;
     selection-background-color: #1d5040;
 }
 QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus, QComboBox:focus {
-    border-color: #1d7a5a;
+    border-color: #2dcaa5;
 }
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-    background: #2a2d36;
-    border: none;
-    width: 18px;
+QSpinBox, QDoubleSpinBox {
+    padding-right: 26px;
 }
-QSpinBox::up-button:hover, QSpinBox::down-button:hover,
-QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-    background: #3a3d46;
-}
-QComboBox::drop-down {
-    border: none;
-    background: #2a2d36;
+QAbstractSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
     width: 24px;
-    border-radius: 0 4px 4px 0;
+    background: #2dcaa5;
+    border: none;
+    border-top-right-radius: 4px;
+    color: #0f1117;
+}
+QAbstractSpinBox::up-button:hover {
+    background: #5eecc8;
+}
+QAbstractSpinBox::up-button:pressed {
+    background: #1a8a6a;
+}
+QAbstractSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 24px;
+    background: #2dcaa5;
+    border: none;
+    border-bottom-right-radius: 4px;
+    border-top: 1px solid #0f1117;
+    color: #0f1117;
+}
+QAbstractSpinBox::down-button:hover {
+    background: #5eecc8;
+}
+QAbstractSpinBox::down-button:pressed {
+    background: #1a8a6a;
 }
 QComboBox QAbstractItemView {
-    background: #181b22;
-    border: 1px solid #2a2d36;
-    selection-background-color: #0e2a3d;
-    color: #c8ccd4;
+    background: #1a1d24;
+    border: 1px solid #4a4d56;
+    selection-background-color: #2dcaa5;
+    selection-color: #0f1117;
+    color: #ffffff;
     outline: none;
     font-size: 13px;
-    padding: 4px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 4px 8px;
 }
 QLineEdit[readOnly="true"] {
-    color: #555a66;
+    color: #888d99;
+}
+QLineEdit#path_edit {
+    color: #c8ccd4;
+    font-size: 11px;
 }
 QSlider::groove:horizontal {
-    height: 4px;
+    height: 8px;
     background: #2a2d36;
-    border-radius: 2px;
+    border: 1px solid #3a3d46;
+    border-radius: 4px;
 }
 QSlider::handle:horizontal {
     background: #2dcaa5;
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
+    border: 2px solid #5eecc8;
+    width: 22px;
+    height: 22px;
+    margin: -8px 0;
+    border-radius: 11px;
+}
+QSlider::handle:horizontal:hover {
+    background: #5eecc8;
+    border-color: #ffffff;
 }
 QSlider::sub-page:horizontal {
     background: #1d7a5a;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 QCheckBox {
-    color: #888d99;
+    color: #c8ccd4;
     font-size: 13px;
     spacing: 8px;
 }
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    border: 1px solid #2a2d36;
+    border: 1px solid #3a3d46;
     border-radius: 3px;
     background: #181b22;
 }
@@ -205,7 +303,7 @@ QTabWidget::tab-bar {
 }
 QTabBar::tab {
     background: #0a0c10;
-    color: #444a58;
+    color: #888d99;
     border: none;
     border-bottom: 2px solid transparent;
     padding: 10px 14px;
@@ -219,7 +317,7 @@ QTabBar::tab:selected {
     background: #0d0f14;
 }
 QTabBar::tab:hover {
-    color: #888d99;
+    color: #c8ccd4;
     background: #0d0f14;
 }
 QFrame#separator {
@@ -228,15 +326,26 @@ QFrame#separator {
     min-height: 1px;
 }
 QLabel#section_label {
-    color: #444a58;
+    color: #e2e4ea;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: 1px;
+    background: transparent;
 }
 QLabel#pos_label {
-    color: #9ee4c8;
+    color: #2dcaa5;
     font-family: "Consolas", "Courier New", monospace;
     font-size: 13px;
+    background: transparent;
+}
+QLabel#pos_label_box {
+    color: #2dcaa5;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    background: #0a0c10;
+    border: 1px solid #1e2128;
+    border-radius: 4px;
+    padding: 5px;
 }
 QLabel#status_ok {
     color: #2dcaa5;
@@ -249,9 +358,22 @@ QLabel#status_err {
     font-weight: 500;
 }
 QLabel#info_val {
-    color: #9ee4c8;
+    color: #c8ffe5;
     font-family: "Consolas", "Courier New", monospace;
-    font-size: 11px;
+    font-size: 12px;
+    background: transparent;
+}
+QLabel#hint_text {
+    color: #888d99;
+    font-size: 10px;
+    background: transparent;
+}
+QLabel#active_preset_lbl {
+    color: #2dcaa5;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
 }
 QMessageBox {
     background: #0f1117;
@@ -260,6 +382,417 @@ QMessageBox QLabel {
     color: #c8ccd4;
 }
 """
+
+
+LIGHT_QSS = """
+QMainWindow, QDialog {
+    background: #f4f5f8;
+}
+QWidget {
+    background: #f4f5f8;
+    color: #1a1d24;
+    font-size: 13px;
+}
+QWidget#titlebar {
+    background: #e8eaf0;
+    border-bottom: 1px solid #d0d4dc;
+}
+QWidget#left_panel {
+    background: #eef0f5;
+    border-right: 1px solid #d0d4dc;
+}
+QWidget#center_panel {
+    background: #f8f9fb;
+}
+QWidget#right_panel {
+    background: #eef0f5;
+    border-left: 1px solid #d0d4dc;
+}
+QWidget#controls_bar {
+    background: #eef0f5;
+    border-top: 1px solid #d0d4dc;
+}
+QLabel#app_title {
+    color: #1a1d24;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    background: transparent;
+}
+QFrame#info_box, QFrame#ocular_box, QFrame#active_preset_box {
+    background: #ffffff;
+    border: 1px solid #d0d4dc;
+    border-radius: 5px;
+}
+QFrame#info_box QLabel, QFrame#ocular_box QLabel, QFrame#active_preset_box QLabel {
+    background: transparent;
+    color: #1a1d24;
+}
+QGroupBox {
+    border: 1px solid #d0d4dc;
+    border-radius: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #1a1d24;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: #1a1d24;
+    font-size: 11px;
+}
+QPushButton {
+    background: #ffffff;
+    border: 1px solid #c0c4cc;
+    border-radius: 5px;
+    padding: 7px 16px;
+    color: #1a1d24;
+    font-size: 13px;
+    min-height: 28px;
+}
+QPushButton:hover {
+    background: #e8eaf0;
+    border-color: #909498;
+    color: #000000;
+}
+QPushButton:pressed {
+    background: #d0d4dc;
+}
+QPushButton:disabled {
+    color: #b0b4bc;
+    background: #f0f1f5;
+    border-color: #e0e2e8;
+}
+QPushButton#btn_connect:enabled {
+    background: #dbeeff;
+    border-color: #2060a0;
+    color: #0050a0;
+    font-weight: 600;
+}
+QPushButton#btn_connect:enabled:hover {
+    background: #c8e2ff;
+    border-color: #1050a0;
+    color: #003070;
+}
+QPushButton#btn_disconnect:enabled {
+    background: #ffe0e0;
+    border-color: #c04040;
+    color: #a02020;
+    font-weight: 600;
+}
+QPushButton#btn_disconnect:enabled:hover {
+    background: #ffd0d0;
+    border-color: #a02020;
+    color: #800000;
+}
+QPushButton#btn_scan, QPushButton#btn_capture {
+    background: #d8f5ec;
+    border-color: #2d8070;
+    color: #186550;
+    font-weight: 600;
+    padding: 9px 16px;
+    min-height: 32px;
+}
+QPushButton#btn_scan:hover, QPushButton#btn_capture:hover {
+    background: #c0eedf;
+    border-color: #1a6050;
+    color: #0a4030;
+}
+QPushButton#btn_start_live:enabled {
+    background: #d8f5ec;
+    border-color: #2d8070;
+    color: #186550;
+    font-weight: 600;
+}
+QPushButton#btn_start_live:enabled:hover {
+    background: #c0eedf;
+    color: #0a4030;
+}
+QPushButton#btn_stop_live:enabled {
+    background: #ffe0e0;
+    border-color: #c04040;
+    color: #a02020;
+    font-weight: 600;
+}
+QPushButton#btn_stop_live:enabled:hover {
+    background: #ffd0d0;
+    border-color: #a02020;
+    color: #800000;
+}
+QPushButton#btn_close {
+    background: #ffe0e0;
+    border-color: #c04040;
+    color: #a02020;
+}
+QPushButton#btn_close:hover {
+    background: #ffd0d0;
+    border-color: #a02020;
+}
+QPushButton#btn_save {
+    background: #dbeeff;
+    border-color: #1a4a6b;
+    color: #0050a0;
+}
+QPushButton#btn_save:hover {
+    background: #c8e2ff;
+    color: #003070;
+}
+QPushButton#btn_delete {
+    background: #ffe8e8;
+    border-color: #c08080;
+    color: #a02020;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+QPushButton#btn_delete:hover {
+    background: #ffd0d0;
+    border-color: #a02020;
+}
+QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox {
+    background: #ffffff;
+    border: 1px solid #909498;
+    border-radius: 5px;
+    padding: 4px 8px;
+    color: #1a1d24;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    min-height: 32px;
+    min-width: 80px;
+    selection-background-color: #b8e0d0;
+}
+QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus, QComboBox:focus {
+    border-color: #186550;
+}
+QSpinBox, QDoubleSpinBox {
+    padding-right: 26px;
+}
+QAbstractSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 24px;
+    background: #186550;
+    border: none;
+    border-top-right-radius: 4px;
+    color: #ffffff;
+}
+QAbstractSpinBox::up-button:hover {
+    background: #2dcaa5;
+}
+QAbstractSpinBox::up-button:pressed {
+    background: #0a4030;
+}
+QAbstractSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 24px;
+    background: #186550;
+    border: none;
+    border-bottom-right-radius: 4px;
+    border-top: 1px solid #ffffff;
+    color: #ffffff;
+}
+QAbstractSpinBox::down-button:hover {
+    background: #2dcaa5;
+}
+QAbstractSpinBox::down-button:pressed {
+    background: #0a4030;
+}
+QComboBox QAbstractItemView {
+    background: #ffffff;
+    border: 1px solid #909498;
+    selection-background-color: #186550;
+    selection-color: #ffffff;
+    color: #1a1d24;
+    outline: none;
+    font-size: 13px;
+    padding: 6px;
+}
+QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 4px 8px;
+}
+QLineEdit[readOnly="true"] {
+    color: #606570;
+}
+QLineEdit#path_edit {
+    color: #1a1d24;
+    font-size: 11px;
+}
+QSlider::groove:horizontal {
+    height: 8px;
+    background: #d0d4dc;
+    border: 1px solid #b0b4bc;
+    border-radius: 4px;
+}
+QSlider::handle:horizontal {
+    background: #186550;
+    border: 2px solid #2dcaa5;
+    width: 22px;
+    height: 22px;
+    margin: -8px 0;
+    border-radius: 11px;
+}
+QSlider::handle:horizontal:hover {
+    background: #2dcaa5;
+    border-color: #186550;
+}
+QSlider::sub-page:horizontal {
+    background: #2dcaa5;
+    border-radius: 4px;
+}
+QCheckBox {
+    color: #1a1d24;
+    font-size: 13px;
+    spacing: 8px;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #c0c4cc;
+    border-radius: 3px;
+    background: #ffffff;
+}
+QCheckBox::indicator:checked {
+    background: #186550;
+    border-color: #2dcaa5;
+}
+QTabWidget::pane {
+    border: none;
+    background: #eef0f5;
+}
+QTabWidget::tab-bar {
+    alignment: left;
+}
+QTabBar::tab {
+    background: #e8eaf0;
+    color: #606570;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+QTabBar::tab:selected {
+    color: #186550;
+    border-bottom: 2px solid #186550;
+    background: #eef0f5;
+}
+QTabBar::tab:hover {
+    color: #1a1d24;
+    background: #eef0f5;
+}
+QFrame#separator {
+    background: #d0d4dc;
+    max-height: 1px;
+    min-height: 1px;
+}
+QLabel#section_label {
+    color: #1a1d24;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    background: transparent;
+}
+QLabel#pos_label {
+    color: #186550;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    background: transparent;
+}
+QLabel#pos_label_box {
+    color: #186550;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    background: #ffffff;
+    border: 1px solid #c0c4cc;
+    border-radius: 4px;
+    padding: 5px;
+}
+QLabel#status_ok {
+    color: #186550;
+    font-size: 12px;
+    font-weight: 500;
+}
+QLabel#status_err {
+    color: #c04040;
+    font-size: 11px;
+    font-weight: 500;
+}
+QLabel#info_val {
+    color: #186550;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    background: transparent;
+}
+QLabel#hint_text {
+    color: #606570;
+    font-size: 10px;
+    background: transparent;
+}
+QLabel#active_preset_lbl {
+    color: #186550;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    background: transparent;
+}
+QMessageBox {
+    background: #f4f5f8;
+}
+QMessageBox QLabel {
+    color: #1a1d24;
+}
+"""
+
+
+class _PlusMinusOverlay:
+    """Mixin: paints big '+' / '−' labels centered over the spinbox buttons."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons:
+            return
+
+        opt = QStyleOptionSpinBox()
+        self.initStyleOption(opt)
+        style = self.style()
+        up_rect = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt,
+            QStyle.SubControl.SC_SpinBoxUp, self,
+        )
+        down_rect = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt,
+            QStyle.SubControl.SC_SpinBoxDown, self,
+        )
+
+        window = self.window()
+        theme = getattr(window, "theme", "dark")
+        color = "#0f1117" if theme == "dark" else "#ffffff"
+
+        painter = QPainter(self)
+        font = QFont(self.font())
+        font.setPointSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(color)))
+        painter.drawText(up_rect, Qt.AlignmentFlag.AlignCenter, "+")
+        painter.drawText(down_rect, Qt.AlignmentFlag.AlignCenter, "−")
+
+
+class SpinBox(_PlusMinusOverlay, QSpinBox):
+    pass
+
+
+class DoubleSpinBox(_PlusMinusOverlay, QDoubleSpinBox):
+    pass
 
 
 def _sep():
@@ -277,14 +810,13 @@ def _section_label(text):
 
 class App(QMainWindow):
     """
-    Main application window for the Multispectral Imaging System. 
-    It initializes the GUI, manages the state of the application, 
+    Main application window for the Multispectral Imaging System.
+    It initializes the GUI, manages the state of the application,
     and coordinates interactions between the acquisition logic, preset management, platform control, and live view display.
     """
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Multispectral System")
-        self.setStyleSheet(DARK_QSS)
         self.resize(1500, 860)
         self.setMinimumSize(1100, 650)
 
@@ -297,6 +829,9 @@ class App(QMainWindow):
         self.preset_fov_x = None
         self.preset_fov_y = None
         self.preset_overlap = None
+        self.is_live_view_running = False
+
+        self.theme = self._load_theme_pref()
 
         self.debounce_timer = QTimer()
         self.debounce_timer.setSingleShot(True)
@@ -308,7 +843,27 @@ class App(QMainWindow):
 
         self.init_logic_modules()
         self.init_ui()
+        self.apply_theme()
         self.update_image_format_controls()
+        self._update_connection_buttons()
+        self._update_live_view_buttons()
+
+    def _load_theme_pref(self):
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("theme", "dark")
+        except Exception:
+            pass
+        return "dark"
+
+    def _save_theme_pref(self):
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump({"theme": self.theme}, f)
+        except Exception:
+            pass
 
     def init_logic_modules(self):
         self.acquisition = Acquisition()
@@ -339,9 +894,18 @@ class App(QMainWindow):
 
         root_layout.addWidget(content, stretch=1)
 
+        self._apply_plus_minus_buttons()
+
+    def _apply_plus_minus_buttons(self):
+        """Switch every interactive spinbox to native +/− buttons."""
+        plus_minus = QAbstractSpinBox.ButtonSymbols.PlusMinus
+        for spin in self.findChildren(QAbstractSpinBox):
+            if spin.buttonSymbols() != QAbstractSpinBox.ButtonSymbols.NoButtons:
+                spin.setButtonSymbols(plus_minus)
+
     def _create_titlebar(self):
         bar = QWidget()
-        bar.setStyleSheet("background: #0a0c10;")
+        bar.setObjectName("titlebar")
         bar.setFixedHeight(52)
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(14, 0, 14, 0)
@@ -349,12 +913,8 @@ class App(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         title = QLabel("Multispectral System")
-        title.setStyleSheet("color: #e2e4ea; font-size: 15px; font-weight: 500; letter-spacing: 1px;")
+        title.setObjectName("app_title")
         layout.addWidget(title)
-
-        ver = QLabel("v2.0")
-        ver.setStyleSheet("color: #333640; font-size: 11px;")
-        layout.addWidget(ver)
 
         layout.addSpacing(16)
 
@@ -372,18 +932,19 @@ class App(QMainWindow):
 
         layout.addStretch()
 
-        btn_connect = QPushButton("Połącz")
-        btn_connect.setObjectName("btn_connect")
-        btn_connect.setFixedHeight(30)
-        btn_connect.clicked.connect(self.connect)
-        layout.addWidget(btn_connect)
+        self.btn_connect = QPushButton("Połącz")
+        self.btn_connect.setObjectName("btn_connect")
+        self.btn_connect.setFixedHeight(30)
+        self.btn_connect.clicked.connect(self.connect)
+        layout.addWidget(self.btn_connect)
 
-        btn_disconnect = QPushButton("Rozłącz")
-        btn_disconnect.setFixedHeight(30)
-        btn_disconnect.clicked.connect(self.disconnect_platform_action)
-        layout.addWidget(btn_disconnect)
+        self.btn_disconnect = QPushButton("Rozłącz")
+        self.btn_disconnect.setObjectName("btn_disconnect")
+        self.btn_disconnect.setFixedHeight(30)
+        self.btn_disconnect.clicked.connect(self.disconnect_platform_action)
+        layout.addWidget(self.btn_disconnect)
 
-        btn_settings = QPushButton("Konsola GRBL")
+        btn_settings = QPushButton("Ustawienia")
         btn_settings.setFixedHeight(30)
         btn_settings.clicked.connect(self.open_settings)
         layout.addWidget(btn_settings)
@@ -396,10 +957,29 @@ class App(QMainWindow):
 
         return bar
 
+    def set_theme(self, theme):
+        if theme == self.theme:
+            return
+        self.theme = theme
+        self.apply_theme()
+        self._save_theme_pref()
+
+    def apply_theme(self):
+        qss = LIGHT_QSS if self.theme == "light" else DARK_QSS
+        self.setStyleSheet(qss)
+        # Re-paint connection-status labels (they use inline colors)
+        if hasattr(self, "cam_status_label"):
+            self.set_connection_status(self.cam_status_label, "Kamera", self.acquisition.camera_connected if hasattr(self, "acquisition") else False)
+            self.set_connection_status(self.kur_status_label, "KURIOS", self.acquisition.kurios_connected if hasattr(self, "acquisition") else False)
+            platform_conn = False
+            if hasattr(self, "platform") and self.platform.grbl.ser is not None:
+                platform_conn = self.platform.is_connected()
+            self.set_connection_status(self.platform_status_label, "Platforma", platform_conn)
+
     def _create_left_panel(self):
         panel = QWidget()
+        panel.setObjectName("left_panel")
         panel.setFixedWidth(230)
-        panel.setStyleSheet("background: #0d0f14; border-right: 1px solid #1e2128;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(12, 14, 12, 14)
         layout.setSpacing(12)
@@ -410,21 +990,21 @@ class App(QMainWindow):
         param_grid.setSpacing(8)
 
         param_grid.addWidget(QLabel("λ [nm]"), 0, 0)
-        self.spin_wavelength = QSpinBox()
+        self.spin_wavelength = SpinBox()
         self.spin_wavelength.setRange(450, 700)
         self.spin_wavelength.setValue(500)
         self.spin_wavelength.valueChanged.connect(self.trigger_hardware_update)
         param_grid.addWidget(self.spin_wavelength, 0, 1)
 
         param_grid.addWidget(QLabel("Ekspoz. [µs]"), 1, 0)
-        self.spin_exposure = QSpinBox()
+        self.spin_exposure = SpinBox()
         self.spin_exposure.setRange(100, 59269000)
         self.spin_exposure.setValue(50000)
         self.spin_exposure.valueChanged.connect(self.trigger_hardware_update)
         param_grid.addWidget(self.spin_exposure, 1, 1)
 
         param_grid.addWidget(QLabel("Gain"), 2, 0)
-        self.spin_gain = QSpinBox()
+        self.spin_gain = SpinBox()
         self.spin_gain.setRange(0, 48)
         self.spin_gain.setSingleStep(1)
         self.spin_gain.setValue(0)
@@ -458,8 +1038,8 @@ class App(QMainWindow):
 
         layout.addWidget(_section_label("Ścieżka zapisu"))
         self.edit_save_path = QLineEdit(self.save_path)
+        self.edit_save_path.setObjectName("path_edit")
         self.edit_save_path.setReadOnly(True)
-        self.edit_save_path.setStyleSheet("color: #555a66; font-size: 10px;")
         layout.addWidget(self.edit_save_path)
 
         btn_path = QPushButton("Wybierz folder...")
@@ -473,17 +1053,12 @@ class App(QMainWindow):
         self.combo_image_format.addItems(self.image_formats)
         layout.addWidget(self.combo_image_format)
 
-        self.label_image_format_hint = QLabel("")
-        self.label_image_format_hint.setWordWrap(True)
-        self.label_image_format_hint.setStyleSheet("color: #444a58; font-size: 10px;")
-        layout.addWidget(self.label_image_format_hint)
-
         layout.addStretch()
         return panel
 
     def _create_center_panel(self):
         panel = QWidget()
-        panel.setStyleSheet("background: #0a0c10;")
+        panel.setObjectName("center_panel")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -492,8 +1067,8 @@ class App(QMainWindow):
         layout.addWidget(self.live_view_widget, stretch=1)
 
         controls_bar = QWidget()
+        controls_bar.setObjectName("controls_bar")
         controls_bar.setFixedHeight(52)
-        controls_bar.setStyleSheet("background: #0d0f14; border-top: 1px solid #1e2128;")
         bar_layout = QHBoxLayout(controls_bar)
         bar_layout.setContentsMargins(10, 0, 10, 0)
         bar_layout.setSpacing(8)
@@ -504,17 +1079,15 @@ class App(QMainWindow):
         bar_layout.addWidget(self.btn_start_live)
 
         self.btn_stop_live = QPushButton("Stop")
+        self.btn_stop_live.setObjectName("btn_stop_live")
         self.btn_stop_live.clicked.connect(self.stop_live_view_action)
         self.btn_stop_live.setEnabled(False)
         bar_layout.addWidget(self.btn_stop_live)
 
         bar_layout.addSpacing(8)
 
-        self.label_pos = QLabel("X=0.00  Y=0.00  Z=0.00 mm")
+        self.label_pos = QLabel("Aktualna pozycja:  X=0.00 mm  Y=0.00 mm  Z=0.00 mm")
         self.label_pos.setObjectName("pos_label")
-        self.label_pos.setStyleSheet(
-            "color: #9ee4c8; font-family: Consolas, monospace; font-size: 13px;"
-        )
         bar_layout.addWidget(self.label_pos)
 
         bar_layout.addStretch()
@@ -524,14 +1097,13 @@ class App(QMainWindow):
 
     def _create_right_panel(self):
         panel = QWidget()
+        panel.setObjectName("right_panel")
         panel.setFixedWidth(290)
-        panel.setStyleSheet("background: #0d0f14; border-left: 1px solid #1e2128;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         tabs = QTabWidget()
-        tabs.setStyleSheet("QTabWidget::pane { border: none; }")
         tabs.addTab(self._tab_presety(), "Presety")
         tabs.addTab(self._tab_xyz(), "XYZ")
         tabs.addTab(self._tab_skan(), "Skan")
@@ -562,7 +1134,7 @@ class App(QMainWindow):
         layout.addLayout(row1)
 
         info_box = QFrame()
-        info_box.setStyleSheet("background: #181b22; border: 1px solid #2a2d36; border-radius: 5px;")
+        info_box.setObjectName("info_box")
         info_layout = QGridLayout(info_box)
         info_layout.setContentsMargins(8, 7, 8, 7)
         info_layout.setSpacing(3)
@@ -603,7 +1175,7 @@ class App(QMainWindow):
         layout.addLayout(row2)
 
         ocular_box = QFrame()
-        ocular_box.setStyleSheet("background: #181b22; border: 1px solid #2a2d36; border-radius: 5px;")
+        ocular_box.setObjectName("ocular_box")
         ocular_grid = QGridLayout(ocular_box)
         ocular_grid.setContentsMargins(8, 7, 8, 7)
         ocular_grid.setSpacing(3)
@@ -631,10 +1203,11 @@ class App(QMainWindow):
         layout.addWidget(_section_label("Krok ruchu"))
         step_row = QHBoxLayout()
         step_row.addWidget(QLabel("Krok [mm]:"))
-        self.spin_platform_step = QDoubleSpinBox()
-        self.spin_platform_step.setRange(0.01, 30.0)
+        self.spin_platform_step = DoubleSpinBox()
+        self.spin_platform_step.setDecimals(3)
+        self.spin_platform_step.setRange(0.002, 30.0)
         self.spin_platform_step.setValue(1.0)
-        self.spin_platform_step.setSingleStep(0.1)
+        self.spin_platform_step.setSingleStep(0.001)
         step_row.addWidget(self.spin_platform_step)
         layout.addLayout(step_row)
 
@@ -684,15 +1257,11 @@ class App(QMainWindow):
         layout.addLayout(home_row)
 
         layout.addWidget(_sep())
-        layout.addWidget(_section_label("Pozycja"))
+        layout.addWidget(_section_label("Aktualna pozycja"))
 
-        self.label_pos_xyz = QLabel("X=0.00  Y=0.00  Z=0.00")
-        self.label_pos_xyz.setObjectName("pos_label")
+        self.label_pos_xyz = QLabel("X=0.00 mm   Y=0.00 mm   Z=0.00 mm")
+        self.label_pos_xyz.setObjectName("pos_label_box")
         self.label_pos_xyz.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_pos_xyz.setStyleSheet(
-            "background: #0a0c10; border: 1px solid #1e2128; border-radius: 4px;"
-            "padding: 5px; font-family: Consolas, monospace; color: #9ee4c8;"
-        )
         layout.addWidget(self.label_pos_xyz)
 
         layout.addStretch()
@@ -704,27 +1273,40 @@ class App(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(7)
 
+        layout.addWidget(_section_label("Aktywny preset"))
+        active_preset_box = QFrame()
+        active_preset_box.setObjectName("active_preset_box")
+        ap_layout = QHBoxLayout(active_preset_box)
+        ap_layout.setContentsMargins(8, 5, 8, 5)
+        self.label_active_preset = QLabel("brak")
+        self.label_active_preset.setObjectName("active_preset_lbl")
+        ap_layout.addWidget(self.label_active_preset)
+        ap_layout.addStretch()
+        layout.addWidget(active_preset_box)
+
+        layout.addWidget(_sep())
+
         layout.addWidget(_section_label("Focus stack"))
 
         grid = QGridLayout()
         grid.setSpacing(5)
 
         grid.addWidget(QLabel("Min Z [mm]"), 0, 0)
-        self.spin_fs_min_height = QDoubleSpinBox()
+        self.spin_fs_min_height = DoubleSpinBox()
         self.spin_fs_min_height.setRange(0.0, 200.0)
         self.spin_fs_min_height.setValue(0.0)
         self.spin_fs_min_height.setSingleStep(0.1)
         grid.addWidget(self.spin_fs_min_height, 0, 1)
 
         grid.addWidget(QLabel("Max Z (obecna)"), 1, 0)
-        self.spin_fs_max_height = QDoubleSpinBox()
+        self.spin_fs_max_height = DoubleSpinBox()
         self.spin_fs_max_height.setRange(0.0, 200.0)
         self.spin_fs_max_height.setReadOnly(True)
         self.spin_fs_max_height.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         grid.addWidget(self.spin_fs_max_height, 1, 1)
 
         grid.addWidget(QLabel("Ilość klatek Z"), 2, 0)
-        self.spin_fs_frames = QSpinBox()
+        self.spin_fs_frames = SpinBox()
         self.spin_fs_frames.setRange(2, 500)
         self.spin_fs_frames.setValue(5)
         grid.addWidget(self.spin_fs_frames, 2, 1)
@@ -746,6 +1328,7 @@ class App(QMainWindow):
         layout.addWidget(_section_label("Akcje"))
 
         btn_capture = QPushButton("Zrób zdjęcie")
+        btn_capture.setObjectName("btn_capture")
         btn_capture.clicked.connect(self.capture_image)
         layout.addWidget(btn_capture)
 
@@ -792,13 +1375,13 @@ class App(QMainWindow):
         grid_p.addWidget(self.combo_preset_stop, 4, 1)
 
         grid_p.addWidget(QLabel("Wysokość [mm]"), 5, 0)
-        self.spin_preset_height = QDoubleSpinBox()
+        self.spin_preset_height = DoubleSpinBox()
         self.spin_preset_height.setRange(0.0, 200.0)
         self.spin_preset_height.setValue(10.0)
         grid_p.addWidget(self.spin_preset_height, 5, 1)
 
         grid_p.addWidget(QLabel("Długość [mm]"), 6, 0)
-        self.spin_preset_length = QDoubleSpinBox()
+        self.spin_preset_length = DoubleSpinBox()
         self.spin_preset_length.setRange(0.0, 200.0)
         self.spin_preset_length.setValue(50.0)
         grid_p.addWidget(self.spin_preset_length, 6, 1)
@@ -821,7 +1404,7 @@ class App(QMainWindow):
         grid_o.addWidget(self.edit_ocular_name, 0, 1)
 
         grid_o.addWidget(QLabel("FOV X [mm]"), 1, 0)
-        self.spin_fov_x = QDoubleSpinBox()
+        self.spin_fov_x = DoubleSpinBox()
         self.spin_fov_x.setRange(0.01, 200.0)
         self.spin_fov_x.setDecimals(3)
         self.spin_fov_x.setValue(2.500)
@@ -829,7 +1412,7 @@ class App(QMainWindow):
         grid_o.addWidget(self.spin_fov_x, 1, 1)
 
         grid_o.addWidget(QLabel("FOV Y [mm]"), 2, 0)
-        self.spin_fov_y = QDoubleSpinBox()
+        self.spin_fov_y = DoubleSpinBox()
         self.spin_fov_y.setRange(0.01, 200.0)
         self.spin_fov_y.setDecimals(3)
         self.spin_fov_y.setValue(1.800)
@@ -837,9 +1420,9 @@ class App(QMainWindow):
         grid_o.addWidget(self.spin_fov_y, 2, 1)
 
         grid_o.addWidget(QLabel("Zakładka [%]"), 3, 0)
-        self.spin_overlap = QSpinBox()
+        self.spin_overlap = SpinBox()
         self.spin_overlap.setRange(0, 90)
-        self.spin_overlap.setValue(15)
+        self.spin_overlap.setValue(25)
         grid_o.addWidget(self.spin_overlap, 3, 1)
 
         layout.addLayout(grid_o)
@@ -854,7 +1437,7 @@ class App(QMainWindow):
         self.update_preset_constraints()
         return w
 
-    # ── Logic methods (unchanged) ────────────────────────────────────────────
+    # ── Logic methods ────────────────────────────────────────────
 
     def connect(self):
         success = self.acquisition.connect_hardware()
@@ -868,10 +1451,14 @@ class App(QMainWindow):
             self.set_platform_status(False)
 
         self.adjust_lighting()
+        self._update_connection_buttons()
 
     def set_connection_status(self, label, name, connected):
         dot = "●"
-        color = "#2dcaa5" if connected else "#555a66"
+        if self.theme == "light":
+            color = "#186550" if connected else "#909498"
+        else:
+            color = "#2dcaa5" if connected else "#888d99"
         state = "OK" if connected else "–"
         label.setText(f"{dot} {name}: {state}")
         label.setStyleSheet(
@@ -881,6 +1468,26 @@ class App(QMainWindow):
 
     def set_platform_status(self, connected):
         self.set_connection_status(self.platform_status_label, "Platforma", connected)
+        self._update_connection_buttons()
+
+    def _update_connection_buttons(self):
+        if not hasattr(self, "btn_connect"):
+            return
+        cam = self.acquisition.camera_connected
+        kur = self.acquisition.kurios_connected
+        platform_conn = False
+        if self.platform.grbl.ser is not None:
+            platform_conn = self.platform.is_connected()
+
+        all_connected = cam and kur and platform_conn
+        any_connected = cam or kur or platform_conn
+
+        self.btn_connect.setEnabled(not all_connected)
+        self.btn_disconnect.setEnabled(any_connected)
+
+    def _update_live_view_buttons(self):
+        self.btn_start_live.setEnabled(not self.is_live_view_running)
+        self.btn_stop_live.setEnabled(self.is_live_view_running)
 
     def disconnect_platform_action(self):
         self.platform.force_stop_and_disconnect()
@@ -890,12 +1497,15 @@ class App(QMainWindow):
             self.pwm_slider.blockSignals(True)
             self.pwm_slider.setValue(0)
             self.pwm_slider.blockSignals(False)
+        self._update_connection_buttons()
 
     def check_platform_connection(self):
         if self.platform.grbl.ser is None:
             self.set_platform_status(False)
+            self._update_connection_buttons()
             return
         self.set_platform_status(self.platform.is_connected())
+        self._update_connection_buttons()
 
     def ensure_platform_connected(self):
         if self.platform.is_connected():
@@ -917,14 +1527,12 @@ class App(QMainWindow):
         self.debounce_timer.start(300)
 
     def update_image_format_controls(self, *_):
-        force_tiff = self.check_use_mapping.isChecked() or self.check_use_focus_stack.isChecked()
-        if force_tiff:
+        # Mapping (stitching) requires multi-page TIFF; focus stack alone can save in PNG/JPG.
+        if self.check_use_mapping.isChecked():
             self.combo_image_format.setCurrentText(".tiff")
             self.combo_image_format.setEnabled(False)
-            self.label_image_format_hint.setText("Mapping i focus stack są zapisywane jako TIFF.")
         else:
             self.combo_image_format.setEnabled(True)
-            self.label_image_format_hint.setText("PNG/JPG tylko bez mapowania i focus stackingu.")
 
     def _force_tiff_output(self):
         self.combo_image_format.setCurrentText(".tiff")
@@ -974,7 +1582,10 @@ class App(QMainWindow):
         return True
 
     def _update_position_label_queued(self):
-        pos_text = f"X={self.platform.x_state:.2f}  Y={self.platform.y_state:.2f}  Z={self.platform.z_state:.2f} mm"
+        pos_text = (
+            f"Aktualna pozycja:  X={self.platform.x_state:.2f} mm  "
+            f"Y={self.platform.y_state:.2f} mm  Z={self.platform.z_state:.2f} mm"
+        )
         QMetaObject.invokeMethod(
             self.label_pos, "setText",
             Qt.ConnectionType.QueuedConnection,
@@ -983,8 +1594,16 @@ class App(QMainWindow):
         QMetaObject.invokeMethod(
             self.label_pos_xyz, "setText",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, f"X={self.platform.x_state:.2f}  Y={self.platform.y_state:.2f}  Z={self.platform.z_state:.2f}")
+            Q_ARG(str, f"X={self.platform.x_state:.2f} mm   Y={self.platform.y_state:.2f} mm   Z={self.platform.z_state:.2f} mm")
         )
+
+    def _update_progress_queued(self, text):
+        if hasattr(self, 'progress_dialog') and self.progress_dialog is not None:
+            QMetaObject.invokeMethod(
+                self.progress_dialog, "setLabelText",
+                Qt.ConnectionType.QueuedConnection,
+                Q_ARG(str, text)
+            )
 
     def _get_acquisition_geometry_if_needed(self):
         if not self.check_use_mapping.isChecked():
@@ -993,12 +1612,25 @@ class App(QMainWindow):
         return geometry or None
 
     def _run_acquisition_thread(self, params: AcquisitionParams):
+        self.progress_dialog = QProgressDialog("Rozpoczynanie akwizycji...", "", 0, 0, self)
+        self.progress_dialog.setWindowTitle("Proszę czekać")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setWindowFlags(self.progress_dialog.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        self.progress_dialog.setCancelButton(None)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.show()
+
+        params.progress_callback = self._update_progress_queued
+
         def run_thread():
-            self.acquisition.run_acquisition(
-                platform=self.platform,
-                params=params
-            )
-            self._update_position_label_queued()
+            try:
+                self.acquisition.run_acquisition(
+                    platform=self.platform,
+                    params=params
+                )
+            finally:
+                self._update_position_label_queued()
+                QMetaObject.invokeMethod(self.progress_dialog, "accept", Qt.ConnectionType.QueuedConnection)
 
         acquisition_thread = threading.Thread(target=run_thread, daemon=True)
         acquisition_thread.start()
@@ -1010,8 +1642,9 @@ class App(QMainWindow):
 
         if not self._ensure_platform_for_focus_stack():
             return
-        
-        if self.check_use_mapping.isChecked() or self.check_use_focus_stack.isChecked():
+
+        # Mapping (stitching) requires TIFF tiles; focus-stack alone keeps user-chosen format.
+        if self.check_use_mapping.isChecked():
             image_format = self._force_tiff_output()
         else:
             image_format = self.combo_image_format.currentText()
@@ -1020,7 +1653,7 @@ class App(QMainWindow):
         if geometry is None:
             return
         bandwidth_name = self.combo_bandwidth.currentText()
-        
+
         params = AcquisitionParams(
             save_path=self.save_path,
             image_format=image_format,
@@ -1040,7 +1673,7 @@ class App(QMainWindow):
         if not self.preset_start_wavelength:
             QMessageBox.warning(self, "Błąd", "Nie wybrano poprawnego presetu skanowania!")
             return
-        
+
         if self.acquisition.camera_connected and self.acquisition.camera.is_live:
             self.stop_live_view_action()
 
@@ -1051,7 +1684,7 @@ class App(QMainWindow):
         geometry = self._get_acquisition_geometry_if_needed()
         if geometry is None:
             return
-            
+
         params = AcquisitionParams(
             save_path=self.save_path,
             image_format=image_format,
@@ -1092,8 +1725,10 @@ class App(QMainWindow):
 
     def update_position_label(self):
         x, y, z = self.platform.x_state, self.platform.y_state, self.platform.z_state
-        self.label_pos.setText(f"X={x:.2f}  Y={y:.2f}  Z={z:.2f} mm")
-        self.label_pos_xyz.setText(f"X={x:.2f}  Y={y:.2f}  Z={z:.2f}")
+        self.label_pos.setText(
+            f"Aktualna pozycja:  X={x:.2f} mm  Y={y:.2f} mm  Z={z:.2f} mm"
+        )
+        self.label_pos_xyz.setText(f"X={x:.2f} mm   Y={y:.2f} mm   Z={z:.2f} mm")
         if hasattr(self, 'spin_fs_max_height'):
             self.spin_fs_max_height.setValue(z)
 
@@ -1139,7 +1774,10 @@ class App(QMainWindow):
         self.pwm_controller.set_pwm(val)
 
     def open_settings(self):
-        dlg = AdvancedSettingsDialog(self, self.platform, self.pwm_controller)
+        dlg = AdvancedSettingsDialog(
+            self, self.platform, self.pwm_controller,
+            theme=self.theme, on_theme_change=self.set_theme,
+        )
         dlg.exec()
 
     def update_preset_constraints(self):
@@ -1223,6 +1861,8 @@ class App(QMainWindow):
                 self.label_geo.setText("---")
                 self.preset_name = None
                 self.preset_start_wavelength = None
+                if hasattr(self, "label_active_preset"):
+                    self.label_active_preset.setText("brak")
 
     def save_ocular(self):
         name = self.edit_ocular_name.text()
@@ -1286,14 +1926,14 @@ class App(QMainWindow):
         queue = self.acquisition.start_live_view()
         if queue:
             self.live_view_widget.start_live_view(queue)
-            self.btn_start_live.setEnabled(False)
-            self.btn_stop_live.setEnabled(True)
+            self.is_live_view_running = True
+            self._update_live_view_buttons()
 
     def stop_live_view_action(self):
         self.live_view_widget.stop_live_view()
         self.acquisition.stop_live_view()
-        self.btn_start_live.setEnabled(True)
-        self.btn_stop_live.setEnabled(False)
+        self.is_live_view_running = False
+        self._update_live_view_buttons()
 
     def on_preset_selected(self, text):
         if text == "Wybierz preset" or not text:
@@ -1306,6 +1946,8 @@ class App(QMainWindow):
             self.preset_start_wavelength = None
             self.preset_end_wavelength = None
             self.preset_step = None
+            if hasattr(self, "label_active_preset"):
+                self.label_active_preset.setText("brak")
             return
         preset_data = self.presets.get_preset_data(text)
         if preset_data:
@@ -1315,6 +1957,7 @@ class App(QMainWindow):
             p_step = preset_data.get("step", 10)
             p_height = preset_data.get("sample_height", 0.0)
             p_length = preset_data.get("sample_length", 0.0)
+            self.preset_name = text
             self.preset_mode = p_mode
             self.preset_start_wavelength = p_start
             self.preset_end_wavelength = p_end
@@ -1323,6 +1966,8 @@ class App(QMainWindow):
             self.label_range.setText(f"{p_start} – {p_end} nm")
             self.label_step.setText(f"{p_step} nm")
             self.label_geo.setText(f"H={p_height}mm  L={p_length}mm")
+            if hasattr(self, "label_active_preset"):
+                self.label_active_preset.setText(text)
             print(f"[INFO] Załadowano preset '{text}'.")
 
     def on_close(self, event=None):

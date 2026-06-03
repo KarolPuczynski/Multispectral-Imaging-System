@@ -23,9 +23,9 @@ $27=2.000   ; Homing pull-off, mm
 $30=1000    ; Max spindle speed, RPM
 $31=0      ; Min spindle speed, RPM
 $32=0      ; Laser mode, (0=Off, 1=On)
-$100=1600.000; X steps/mm
-$101=1600.000; Y steps/mm
-$102=200.000; Z steps/mm
+$100=3200.000; X steps/mm
+$101=3200.000; Y steps/mm
+$102=6400.000; Z steps/mm
 $110=500.000; X Max rate, mm/min
 $111=500.000; Y Max rate, mm/min
 $112=500.000; Z Max rate, mm/min

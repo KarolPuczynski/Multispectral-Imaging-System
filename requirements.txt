@@ -3,4 +3,3 @@ opencv-python==4.13.0.92
 pillow==12.2.0
 PyQt6==6.11.0
 pyserial==3.5
-thorlabs_tsi_sdk==0.0.8

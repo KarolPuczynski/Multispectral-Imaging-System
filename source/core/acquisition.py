@@ -46,6 +46,9 @@ class AcquisitionParams:
     # Focus Stack
     focus_stack_params: Optional[Dict[str, Any]] = None
 
+    # Progress callback
+    progress_callback: Optional[Any] = None
+
 
 class Acquisition:
     """
@@ -135,6 +138,9 @@ class Acquisition:
         if not self.if_safe_to_scan():
             print("[INFO] Nie mozna przechwycic obrazu. Upewnij sie, ze sprzet jest polaczony i nie trwa inne skanowanie.")
             return None
+
+        if params.progress_callback:
+            params.progress_callback(f"Przechwytywanie pojedynczej klatki ({params.wavelength} nm)...")
 
         self.filter.SetWavelength(params.wavelength)
         bandwidth_code = params.bandwidth_code if params.bandwidth_code is not None else params.bandwidth_modes.get(params.bandwidth_mode, 4)
@@ -234,6 +240,9 @@ class Acquisition:
             captured_data = []
 
             for i, wavelength in enumerate(wavelengths):
+                if params.progress_callback:
+                    params.progress_callback(f"Skanowanie: przechwytywanie {wavelength} nm ({i + 1}/{len(wavelengths)})...")
+
                 self.filter.SetWavelength(wavelength)
 
                 if i > 0:
@@ -303,27 +312,51 @@ class Acquisition:
             cap_params = replace(params, save_path=None)
 
             for i in range(num_of_frames):
+                if params.progress_callback:
+                    params.progress_callback(f"Focus stack: pozycjonowanie/akwizycja Z {i + 1}/{num_of_frames}...")
+
                 self.is_scanning = False
 
                 if params.spectral_scan:
                     frame_data = self.scan_sequence(cap_params)
                     if frame_data is not None:
                         frames.append(frame_data)
+                        
+                        # --- Uncomment the following lines for saving every frame from focus stacking ---
+                        # bit_depth_t = self.camera.camera.bit_depth if self.camera else 10
+                        # for fd in frame_data:
+                        #     test_img = (fd["frame_data"] >> (bit_depth_t - 8)).astype(np.uint8)
+                        #     t_path = os.path.join(params.save_path or "", f"test_fs_Z{i}_{fd['wavelength']}nm.png")
+                        #     Image.fromarray(test_img).save(t_path)
+                        # ----------------------------------------------------
                 else:
                     frame = self.capture_image(cap_params)
                     if frame is not None:
                         frames.append(frame)
 
+                        # --- Uncomment the following lines for saving every frame from focus stacking ---
+                        # bit_depth_t = self.camera.camera.bit_depth if self.camera else 10
+                        # test_img = (frame >> (bit_depth_t - 8)).astype(np.uint8)
+                        # t_path = os.path.join(params.save_path or "", f"test_fs_Z{i}_{params.wavelength}nm.png")
+                        # Image.fromarray(test_img).save(t_path)
+                        # ----------------------------------------------------
+
                 self.is_scanning = True
 
                 if i < num_of_frames - 1:
                     platform.validate_and_move("Z", z_step, -1)
+                    time.sleep(0.4) 
 
             if len(frames) < 2:
                 print("[INFO] Zbyt malo poprawnych klatek do focus stackingu.")
                 return frames[0] if frames else None
 
+            if params.progress_callback:
+                params.progress_callback("Przetwarzanie obrazów (Focus Stacking)...")
+
             stacked_result = focus_stacker.stack(frames, params.spectral_scan)
+            bit_depth = self.camera.camera.bit_depth if self.camera else 10
+            stacked_result = focus_stacker.stack(frames, hypercube_scanning=params.spectral_scan, bit_depth=bit_depth)
 
             if params.save_path and stacked_result is not None:
                 if params.spectral_scan:
@@ -364,15 +397,28 @@ class Acquisition:
             return []
 
         overlap_factor = params.overlap / 100.0
-        step_x = params.fov_x * (1.0 - overlap_factor)
-        step_y = params.fov_y * (1.0 - overlap_factor)
+        max_step_x = params.fov_x * (1.0 - overlap_factor)
+        max_step_y = params.fov_y * (1.0 - overlap_factor)
 
-        if step_x <= 0 or step_y <= 0:
+        if max_step_x <= 0 or max_step_y <= 0:
             print("[INFO] Bledna zakladka. Krok siatki musi byc wiekszy od zera.")
             return []
 
-        cols = max(1, math.ceil(params.sample_width / step_x))
-        rows = max(1, math.ceil(params.sample_height / step_y))
+        # Aby zdjęcia lepiej się nakładały i pokrywały próbkę z marginesem (nie na krawędzi):
+        # ustawiamy skrajne kafelki dokładnie na brzegach próbki.
+        if params.sample_width <= params.fov_x:
+            cols = 1
+            step_x = max_step_x
+        else:
+            cols = max(2, math.ceil(params.sample_width / max_step_x) + 1)
+            step_x = params.sample_width / (cols - 1)
+
+        if params.sample_height <= params.fov_y:
+            rows = 1
+            step_y = max_step_y
+        else:
+            rows = max(2, math.ceil(params.sample_height / max_step_y) + 1)
+            step_y = params.sample_height / (rows - 1)
 
         offset_x = ((cols - 1) * step_x) / 2.0
         offset_y = ((rows - 1) * step_y) / 2.0
@@ -423,12 +469,18 @@ class Acquisition:
             print(f"[INFO] Rozpoczynam mapowanie ({dir_prefix}). Srodek probki: X={center_x:.2f}, Y={center_y:.2f}")
 
             for tile_idx, (dx, dy) in enumerate(grid_points):
+                if params.progress_callback:
+                    params.progress_callback(f"Mapowanie: przemieszczanie do kafelka {tile_idx + 1}/{len(grid_points)}...")
+
                 target_x, target_y = center_x + dx, center_y + dy
                 print(f"\n[SCAN] --- Kafelek {tile_idx + 1}/{len(grid_points)} --- X={target_x:.2f}, Y={target_y:.2f}")
 
                 if not platform.move_to_position_blocking(target_x, target_y):
                     print(f"[SCAN] Pomijam kafelek {tile_idx}, bo ruch platformy sie nie powiodl.")
                     continue
+
+                if params.progress_callback:
+                    params.progress_callback(f"Mapowanie: akwizycja kafelka {tile_idx + 1}/{len(grid_points)}...")
 
                 self.is_scanning = False
                 captured_data = acquisition_function()
@@ -442,18 +494,36 @@ class Acquisition:
                 full_path = os.path.join(mosaic_dir, filename)
                 save_function(captured_data, full_path)
 
+                # --- SEKCJA TESTOWA: Zapis kazdego kafelka mapowania do PNG ---
+                # bit_depth_t = self.camera.camera.bit_depth if self.camera else 10
+                # if isinstance(captured_data, list):  # Przypadek skanu spektralnego
+                #     for fd in captured_data:
+                #         test_img = (fd["frame_data"] >> (bit_depth_t - 8)).astype(np.uint8)
+                #         t_path = os.path.join(mosaic_dir, f"test_map_tile{tile_idx:03d}_{fd['wavelength']}nm.png")
+                #         Image.fromarray(test_img).save(t_path)
+                # else:  # Przypadek pojedynczego zdjecia
+                #     test_img = (captured_data >> (bit_depth_t - 8)).astype(np.uint8)
+                #     t_path = os.path.join(mosaic_dir, f"test_map_tile{tile_idx:03d}.png")
+                #     Image.fromarray(test_img).save(t_path)
+                # --------------------------------------------------------------
+
                 metadata_tiles.append({"tile_index": tile_idx, "filename": filename, "relative_x": dx, "relative_y": dy, "absolute_x": target_x, "absolute_y": target_y})
 
             self._save_mosaic_layout(mosaic_dir=mosaic_dir, sample_width=params.sample_width, sample_height=params.sample_height, fov_x=params.fov_x, fov_y=params.fov_y, overlap=params.overlap, tiles=metadata_tiles, **layout_params)
 
             print(f"\n[INFO] Mapowanie zakonczone. Wracam na srodek probki...")
+            if params.progress_callback:
+                params.progress_callback("Mapowanie: powrót do pozycji startowej...")
             platform.move_to_position_blocking(center_x, center_y)
 
             if params.stitch_after and metadata_tiles:
+                if params.progress_callback:
+                    params.progress_callback("Mapowanie: automatyczne zszywanie (Stitching)...")
                 print("[INFO] Rozpoczynam automatyczne zszywanie kafelkow...")
                 stitcher = MosaicStitcher(mosaic_dir)
                 if stitcher.stitch(stitch_filename):
                     print(f"[INFO] Zszyta mozaika znajduje sie w folderze: {mosaic_dir}")
+                    self._cleanup_intermediate_tiles(mosaic_dir, stitch_filename)
                 else:
                     print("[INFO] Zszywanie zakonczylo sie niepowodzeniem.")
 
@@ -487,6 +557,7 @@ class Acquisition:
             "step": params.step,
             "bandwidth_mode": params.bandwidth_mode,
             "gain": params.gain,
+            "exposure": params.exposure,
             "focus_stack_params": params.focus_stack_params
         }
 
@@ -552,6 +623,7 @@ class Acquisition:
             "step": 0,
             "bandwidth_mode": params.bandwidth_mode,
             "gain": params.gain,
+            "exposure": params.exposure,
             "focus_stack_params": params.focus_stack_params
         }
 
@@ -565,6 +637,21 @@ class Acquisition:
             stitch_filename="final_image_mosaic.tiff"
         )
 
+    def _cleanup_intermediate_tiles(self, mosaic_dir, stitch_filename):
+        """Remove tile_*.tiff files and the layout JSON after the final mosaic was produced."""
+        try:
+            for entry in os.listdir(mosaic_dir):
+                entry_path = os.path.join(mosaic_dir, entry)
+                if not os.path.isfile(entry_path):
+                    continue
+                if entry == stitch_filename:
+                    continue
+                if entry.startswith("tile_") or entry == "mosaic_layout.json":
+                    os.remove(entry_path)
+            print(f"[INFO] Usunieto posrednie kafelki, pozostawiono tylko {stitch_filename}.")
+        except Exception as e:
+            print(f"[INFO] Nie udalo sie usunac wszystkich plikow posrednich: {e}")
+
     def _save_tile_hypercube(self, captured_data, full_path):
         pil_images = [Image.fromarray(item["frame_data"].astype(np.uint16)) for item in captured_data]
         pil_images[0].save(full_path, save_all=True, append_images=pil_images[1:])
@@ -576,7 +663,7 @@ class Acquisition:
 
     def _save_mosaic_layout(self, mosaic_dir, sample_width, sample_height, fov_x, fov_y, overlap, tiles,
                             starting_wavelength, ending_wavelength, step, bandwidth_mode, gain,
-                            focus_stack_params=None):
+                            exposure=None, focus_stack_params=None):
         layout = {
             "sample_width": sample_width,
             "sample_height": sample_height,
@@ -589,6 +676,7 @@ class Acquisition:
                 "step_nm": step,
                 "bandwidth_mode": bandwidth_mode,
                 "gain": gain,
+                "exposure_us": exposure,
                 "focus_stack": focus_stack_params
             },
             "tiles": tiles
@@ -598,6 +686,9 @@ class Acquisition:
             json.dump(layout, f, indent=4)
 
     def save_hypercube(self, captured_data, params: AcquisitionParams):
+        if params.progress_callback:
+            params.progress_callback("Zapisywanie danych pomiarowych...")
+
         if not captured_data:
             return
 
