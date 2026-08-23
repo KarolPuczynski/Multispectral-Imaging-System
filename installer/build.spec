@@ -4,9 +4,16 @@ block_cipher = None
 
 a = Analysis(
     ['..\\source\\main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[('..\\source\\data', 'source\\data'), ('..\\dlls', 'dlls')],
+    pathex=['..\\source'],
+    binaries=[
+        ('..\\dlls\\64_lib\\*.dll', 'dlls\\64_lib'),
+        ('..\\dlls\\control\\FTD2XX.dll', 'dlls\\control'),
+        ('..\\dlls\\control\\KURIOS_COMMAND_LIB_Win64.dll', 'dlls\\control'),
+    ],
+    datas=[
+        ('..\\source\\data', 'source\\data'),
+        ('..\\dlls\\64_lib\\thorlabs_tsi_logger.cfg', 'dlls\\64_lib'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -28,8 +35,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
+    contents_directory='_internal',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -43,7 +51,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='MultispectralSystem',
 )

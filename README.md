@@ -99,6 +99,26 @@ If you don't want to install Python and run the project from source, you can dow
 
 **https://drive.google.com/drive/u/0/folders/14rE6xOxQYgXDar_4ymnObTRZJHAj3Bcf**
 
+### Target-system requirements
+
+The installer contains the application and native SDK DLLs, but PyInstaller cannot install hardware drivers. Before running the application on a new Windows computer, install:
+
+- [ThorImageCAM or ThorCam](https://www.thorlabs.com/software-pages/thorcam), which installs the Thorlabs camera USB driver.
+- The [KURIOS software, drivers, and SDK](https://www.thorlabs.com/software-pages/KURIOS).
+- Microsoft Visual C++ Redistributable for Visual Studio 2015–2022 (x64), required by the current Thorlabs camera DLLs.
+
+### Building the installer
+
+Build with 64-bit Python from the `installer` directory. The build environment must have the Thorlabs Python SDK installed as described above.
+
+```bat
+pip install "pyinstaller>=6,<7"
+cd installer
+pyinstaller --clean --noconfirm build.spec
+```
+
+Then compile `installer/setup.iss` with Inno Setup and test the installed application on the hardware. The setup intentionally installs `dlls` beside the executable because the unchanged hardware loaders resolve their native libraries from that location.
+
 ## How to Use the Project
 
 1. After launching the application, ensure the software has established a proper connection by clicking the **Połącz** (Connect) button. The status of connected modules will be displayed on the top bar (Camera, KURIOS, Platform).
