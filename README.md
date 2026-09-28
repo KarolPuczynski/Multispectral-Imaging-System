@@ -134,10 +134,10 @@ Then compile `installer/setup.iss` with Inno Setup and test the installed applic
 - **Maciej Wróbel, PhD, Eng.** – Project Supervisor
   - Email: maciej.wrobel@pg.edu.pl
 - **Hubert Czarnecki** – Project Leader, Software Development
-  - Email: 
+  - Email: hubertczarnecki@icloud.com
 - **Karol Puczyński** – Software Development
   - Email: karol.puczynski123@gmail.com
 - **Piotr Rokita** – Platform Design and Modeling
   - Email: piotr.rok03@gmail.com
 - **Patryk Polechoński** – Electronics
-  - Email:
+  - Email: papo0808@op.pl
